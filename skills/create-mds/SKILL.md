@@ -5,7 +5,7 @@ description: "Build a Modern Data Stack (Tailscale + Airbyte + BigQuery + dbt + 
 
 # create-mds
 
-> **Status**: v0.0.1 — skeleton. Playbook in development. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
+> **Status**: v0.1.0 — Phase 1 playbook complete; Phase 2 and Phase 3 still to be written. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
 
 ## What this skill does
 
@@ -37,16 +37,16 @@ If the marker exists, **do not proceed**. Tell the user which skill to use inste
 
 ## Phase 1 — Raw layer (Tailscale + VPS + Airbyte + BigQuery)
 
-**Status: in development.** Detailed playbook will live in `references/phase-1-raw-layer.md`.
+**Status: complete (v0.1.0).** Full playbook in [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md). That file is the orchestrator the agent reads to drive Phase 1 end-to-end.
 
 Outline:
 
 1. Gather user input: company name, primary data sources, VPS provider preference, GCP billing account.
-2. Provision the VPS (see `references/vps-hostinger-bootstrap.md`).
-3. Join the VPS to a Tailscale tailnet (see `references/tailscale-onprem.md`).
-4. Install Airbyte OSS via `abctl` (see `references/airbyte-install.md`).
-5. Create the BigQuery project and service account (see `references/bigquery-project-setup.md`).
-6. Wire the first source: Airbyte connection → BigQuery `raw_*` dataset.
+2. Provision the VPS — [`references/vps-hostinger-bootstrap.md`](references/vps-hostinger-bootstrap.md).
+3. Join the VPS to a Tailscale tailnet, optionally on-prem hosts — [`references/tailscale-onprem.md`](references/tailscale-onprem.md).
+4. Create the BigQuery project and service account — [`references/bigquery-project-setup.md`](references/bigquery-project-setup.md).
+5. Install Airbyte OSS via `abctl` — [`references/airbyte-install.md`](references/airbyte-install.md).
+6. Wire the first source (delegates to [`add-source`](../add-source/SKILL.md)).
 7. Initialize the client GitHub repo, write the marker, commit the initial state.
 
 ## Phase 2 — Transform layer (dbt)
@@ -84,10 +84,13 @@ When this skill completes successfully:
 
 ## References
 
-- [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md) — *to be written* — full Phase 1 playbook
-- [`references/vps-hostinger-bootstrap.md`](references/vps-hostinger-bootstrap.md) — *to be written*
-- [`references/tailscale-onprem.md`](references/tailscale-onprem.md) — *to be written*
-- [`references/airbyte-install.md`](references/airbyte-install.md) — *to be written*
-- [`references/bigquery-project-setup.md`](references/bigquery-project-setup.md) — *to be written*
+Phase 1 (complete):
+- [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md) — orchestrator, step-by-step
+- [`references/vps-hostinger-bootstrap.md`](references/vps-hostinger-bootstrap.md)
+- [`references/tailscale-onprem.md`](references/tailscale-onprem.md)
+- [`references/airbyte-install.md`](references/airbyte-install.md)
+- [`references/bigquery-project-setup.md`](references/bigquery-project-setup.md)
+
+Cross-cutting:
 - [`../../shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md)
 - [`../../shared-references/stack-rationale.md`](../../shared-references/stack-rationale.md)

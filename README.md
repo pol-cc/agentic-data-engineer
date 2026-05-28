@@ -68,9 +68,9 @@ You need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Host
 
 ## Status
 
-**v0.0.1 — skeleton.** Folder structure, principles manifest, and SKILL.md scaffolds are in place. Each skill's playbook is being written. See `skills/<name>/SKILL.md` for status of each one.
+**v0.1.0 — Phase 1 playbook complete.** The `create-mds` skill has a full Phase 1 playbook (Tailscale + VPS + Airbyte + BigQuery raw layer) ready to execute. Phase 2 (dbt) and Phase 3 (MCP) are still skeletons. The other five skills (`add-source`, `add-dbt-model`, `add-mcp-skill`, `verify-pipeline`, `troubleshoot`) have SKILL.md scaffolds with outlined playbooks; their `references/` files are still to be written.
 
-The current development priority is **Phase 1**: `create-mds` end-to-end (Tailscale + VPS + Airbyte + BigQuery raw layer). Phase 2 (dbt) and Phase 3 (MCP) follow.
+See each `skills/<name>/SKILL.md` header for individual status. Contributions especially welcome on `add-source` (Airbyte API + native BQ transfer references) — that's the next priority after `create-mds` Phase 2.
 
 ## License
 
