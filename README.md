@@ -68,9 +68,11 @@ You need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Host
 
 ## Status
 
-**v0.2.0 — Phase 1 and Phase 2 playbooks complete.** The `create-mds` skill can drive a deployment end-to-end from zero through `dbt run` on cron. Phase 3 (MCP server) is still a skeleton. The `add-dbt-model` skill has its full conventions and decision-tree references; the other four skills (`add-source`, `add-mcp-skill`, `verify-pipeline`, `troubleshoot`) have SKILL.md scaffolds with outlined playbooks; their `references/` files are still to be written.
+**v0.3.0 — `create-mds` complete (all three phases).** The skill drives a deployment end-to-end: from zero through raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery), through dbt transforms on cron (Phase 2), to a public MCP server with GitHub OAuth and the first per-domain skill (Phase 3). The `add-dbt-model` and `add-mcp-skill` skills have their core convention references written.
 
-See each `skills/<name>/SKILL.md` header for individual status. Next development priority: Phase 3 (MCP) for `create-mds`, then `add-source` references (Airbyte API + native BQ transfer).
+The remaining three skills (`add-source`, `verify-pipeline`, `troubleshoot`) still have skeletal SKILL.md scaffolds; their `references/` are next. See each `skills/<name>/SKILL.md` header for individual status.
+
+Next development priority: `add-source` references (Airbyte API + BQ native transfer + on-prem via Tailscale).
 
 ## License
 

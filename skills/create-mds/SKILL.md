@@ -5,7 +5,7 @@ description: "Build a Modern Data Stack (Tailscale + Airbyte + BigQuery + dbt + 
 
 # create-mds
 
-> **Status**: v0.2.0 — Phase 1 and Phase 2 playbooks complete; Phase 3 (MCP) still to be written. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
+> **Status**: v0.3.0 — Phase 1, Phase 2, and Phase 3 playbooks complete. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
 
 ## What this skill does
 
@@ -64,15 +64,21 @@ Outline:
 
 ## Phase 3 — Agentic layer (MCP server)
 
-**Status: planned.** Optional. Skipped if the user declines.
+**Status: complete (v0.3.0).** Full playbook in [`references/phase-3-agentic-layer.md`](references/phase-3-agentic-layer.md). Optional — can be skipped or deferred. When invoked, turns the warehouse into an agentic platform queryable by any MCP-compatible client (claude.ai, Claude Code, Cursor, future agents).
 
 Outline:
 
-1. Scaffold an MCP server from the template (see [`add-mcp-skill`](../add-mcp-skill/SKILL.md) for the per-skill pattern).
-2. Deploy as a container on the VPS behind Traefik with TLS.
-3. Configure OAuth/auth for the MCP endpoint.
-4. Register the first skill (`run_bq_query` plus a context `.md` file).
-5. Commit the MCP server config to the client repo.
+1. User input: domain name for MCP endpoint, allowlist of GitHub users, first skill domain, write-tools yes/no.
+2. DNS A record → VPS public IP.
+3. Install Traefik on the VPS for TLS reverse proxy — [`references/traefik-tls-setup.md`](references/traefik-tls-setup.md).
+4. Create a read-only BigQuery service account for the MCP server.
+5. Create a GitHub OAuth app (manual ceremony).
+6. Deploy the MCP server as a Docker container — [`references/mcp-bigquery-server-deploy.md`](references/mcp-bigquery-server-deploy.md).
+7. Bootstrap the first skill (folder with descriptor.json + context.md + schema.md + examples.sql) — [`references/mcp-first-skill-bootstrap.md`](references/mcp-first-skill-bootstrap.md).
+8. Connect from claude.ai (manual ceremony).
+9. Commit MCP code and skills to the client repo.
+
+Conceptual background: [`references/mcp-server-architecture.md`](references/mcp-server-architecture.md).
 
 ## Outputs
 
@@ -100,6 +106,14 @@ Phase 2 (complete):
 - [`references/dbt-cron-scheduling.md`](references/dbt-cron-scheduling.md)
 - [`../add-dbt-model/references/dbt-naming-conventions.md`](../add-dbt-model/references/dbt-naming-conventions.md)
 - [`../add-dbt-model/references/staging-vs-marts.md`](../add-dbt-model/references/staging-vs-marts.md)
+
+Phase 3 (complete):
+- [`references/phase-3-agentic-layer.md`](references/phase-3-agentic-layer.md) — orchestrator
+- [`references/mcp-server-architecture.md`](references/mcp-server-architecture.md) — design decisions
+- [`references/traefik-tls-setup.md`](references/traefik-tls-setup.md)
+- [`references/mcp-bigquery-server-deploy.md`](references/mcp-bigquery-server-deploy.md)
+- [`references/mcp-first-skill-bootstrap.md`](references/mcp-first-skill-bootstrap.md)
+- [`../add-mcp-skill/references/mcp-skill-folder-pattern.md`](../add-mcp-skill/references/mcp-skill-folder-pattern.md)
 
 Cross-cutting:
 - [`../../shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md)

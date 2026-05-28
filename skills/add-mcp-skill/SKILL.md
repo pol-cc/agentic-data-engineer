@@ -5,7 +5,7 @@ description: "Add a new BigQuery-backed skill to the MCP server: a tool exposed 
 
 # add-mcp-skill
 
-> **Status**: v0.0.1 — skeleton. Playbook in development.
+> **Status**: v0.3.0 — folder-pattern reference written (the most important component). Step-by-step playbook for adding a skill to an existing MCP server still skeletal; the template skeleton (`templates/mcp-skill-skeleton/`) is forthcoming.
 
 ## What this skill does
 
@@ -73,6 +73,12 @@ Connect to the MCP server from claude.ai or Claude Code and ask a representative
 
 ## References
 
-- [`references/mcp-on-bigquery.md`](references/mcp-on-bigquery.md) — *to be written* — architecture of a BigQuery-backed MCP server
-- [`references/skills-sapiens-reference.md`](references/skills-sapiens-reference.md) — *to be written* — the production reference deployment's structure
-- [`templates/mcp-skill-skeleton/`](templates/mcp-skill-skeleton/) — *to be written* — copy-paste starter for a new skill
+Folder pattern (complete):
+- [`references/mcp-skill-folder-pattern.md`](references/mcp-skill-folder-pattern.md) — the four-file structure (descriptor.json + context.md + schema.md + examples.sql), quality bars per file, iteration loop, multi-skill rules
+
+Background (in create-mds Phase 3):
+- [`../create-mds/references/mcp-server-architecture.md`](../create-mds/references/mcp-server-architecture.md) — how the MCP server uses these files
+
+Still to be written:
+- `templates/mcp-skill-skeleton/` — copy-paste starter (descriptor.json + context.md + schema.md + examples.sql with sensible placeholders)
+- `references/skills-sapiens-reference.md` — annotated walkthrough of the production reference deployment's first skill
