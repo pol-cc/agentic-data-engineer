@@ -1,0 +1,33 @@
+# Claude Code local state
+.claude/
+
+# Editor
+.vscode/
+.idea/
+*.sw?
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+
+# Logs
+*.log
+
+# Secrets — should never be in this repo (skills produce client repos that hold them)
+*credentials*.json
+*.pem
+.env
+.env.*
+!.env.example
