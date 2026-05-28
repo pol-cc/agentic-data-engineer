@@ -5,7 +5,7 @@ description: "Build a Modern Data Stack (Tailscale + Airbyte + BigQuery + dbt + 
 
 # create-mds
 
-> **Status**: v0.1.0 — Phase 1 playbook complete; Phase 2 and Phase 3 still to be written. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
+> **Status**: v0.2.0 — Phase 1 and Phase 2 playbooks complete; Phase 3 (MCP) still to be written. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
 
 ## What this skill does
 
@@ -51,15 +51,16 @@ Outline:
 
 ## Phase 2 — Transform layer (dbt)
 
-**Status: planned.** Will be a separate playbook section invoked after Phase 1 completes or on demand.
+**Status: complete (v0.2.0).** Full playbook in [`references/phase-2-transform-layer.md`](references/phase-2-transform-layer.md). Invoked after Phase 1 succeeds, or independently if the user already has Phase 1 done and wants to add dbt.
 
 Outline:
 
-1. Install dbt-core + dbt-bigquery in a Python venv on the VPS.
-2. Scaffold the dbt project structure (`staging/`, `intermediate/`, `marts/`) following [`add-dbt-model`](../add-dbt-model/SKILL.md) conventions.
-3. Configure `profiles.yml` for the BigQuery service account.
-4. Schedule `dbt run` via cron with logging to a discoverable path.
-5. Commit the dbt project to the client repo.
+1. Install dbt-core + dbt-bigquery in a Python venv on the VPS — [`references/dbt-on-vps-install.md`](references/dbt-on-vps-install.md).
+2. Scaffold the dbt project structure following the [`add-dbt-model`](../add-dbt-model/SKILL.md) conventions — [`references/dbt-project-scaffold.md`](references/dbt-project-scaffold.md).
+3. Configure `profiles.yml` for the BigQuery service account — [`references/dbt-profiles-bigquery.md`](references/dbt-profiles-bigquery.md).
+4. Bootstrap staging models for each existing source (delegates to [`add-dbt-model`](../add-dbt-model/SKILL.md)).
+5. Schedule `dbt run` via cron — [`references/dbt-cron-scheduling.md`](references/dbt-cron-scheduling.md).
+6. Commit the dbt project to the client repo.
 
 ## Phase 3 — Agentic layer (MCP server)
 
@@ -90,6 +91,15 @@ Phase 1 (complete):
 - [`references/tailscale-onprem.md`](references/tailscale-onprem.md)
 - [`references/airbyte-install.md`](references/airbyte-install.md)
 - [`references/bigquery-project-setup.md`](references/bigquery-project-setup.md)
+
+Phase 2 (complete):
+- [`references/phase-2-transform-layer.md`](references/phase-2-transform-layer.md) — orchestrator
+- [`references/dbt-on-vps-install.md`](references/dbt-on-vps-install.md)
+- [`references/dbt-project-scaffold.md`](references/dbt-project-scaffold.md)
+- [`references/dbt-profiles-bigquery.md`](references/dbt-profiles-bigquery.md)
+- [`references/dbt-cron-scheduling.md`](references/dbt-cron-scheduling.md)
+- [`../add-dbt-model/references/dbt-naming-conventions.md`](../add-dbt-model/references/dbt-naming-conventions.md)
+- [`../add-dbt-model/references/staging-vs-marts.md`](../add-dbt-model/references/staging-vs-marts.md)
 
 Cross-cutting:
 - [`../../shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md)

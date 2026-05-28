@@ -5,7 +5,7 @@ description: "Add a new dbt model (staging, intermediate, or marts) to an existi
 
 # add-dbt-model
 
-> **Status**: v0.0.1 — skeleton. Playbook in development.
+> **Status**: v0.2.0 — conventions and decision tree references written; the step-by-step playbook for invoking from an existing MDS is still skeletal.
 
 ## What this skill does
 
@@ -61,7 +61,10 @@ See `references/staging-vs-marts.md` and `references/dbt-naming-conventions.md`.
 
 ## References
 
-- [`references/dbt-naming-conventions.md`](references/dbt-naming-conventions.md) — *to be written* — `stg_*`, `int_*`, `dim_*`, `fact_*`, `mart_*` rules
-- [`references/staging-vs-marts.md`](references/staging-vs-marts.md) — *to be written* — decision tree for where a model belongs
-- [`templates/staging.sql.template`](templates/staging.sql.template) — *to be written*
-- [`templates/marts.sql.template`](templates/marts.sql.template) — *to be written*
+Conventions (complete):
+- [`references/dbt-naming-conventions.md`](references/dbt-naming-conventions.md) — file/model/column naming, SQL style, tests pattern, canonical model shapes
+- [`references/staging-vs-marts.md`](references/staging-vs-marts.md) — decision tree for which layer a model belongs in
+
+Templates (still to be written):
+- `templates/staging.sql.template`
+- `templates/marts.sql.template`
