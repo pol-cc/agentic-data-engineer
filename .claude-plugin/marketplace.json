@@ -8,9 +8,8 @@
     {
       "name": "agentic-data-engineer",
       "source": {
-        "source": "url",
-        "url": "https://github.com/pol-cc/agentic-data-engineer.git",
-        "sha": "52edd4e3e6f2f69f92bcaa40a876d739fd3dc3f2"
+        "source": "github",
+        "repo": "pol-cc/agentic-data-engineer"
       },
       "description": "Turn Claude Code into the data engineer a small business could never afford. Builds and operates a cheap, powerful Modern Data Stack (Tailscale + dlt + BigQuery + dbt + optional MCP) end-to-end, headless.",
       "version": "0.7.0",
