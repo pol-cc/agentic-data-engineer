@@ -199,4 +199,34 @@ Rule of thumb: a skill should fit on a whiteboard. If you can't explain its scop
 
 ## Reference deployment
 
-`pol-cc/skills-sapiens` is the original production deployment of this pattern (private repo). Its first active skill `analitica-comercial` follows this exact four-file layout against `raw_sql_server.VistaInformeAlbaranesClientes` plus four ERP tables. The skill has been iterated over months — every "the agent got X wrong" became a context.md edit. Pattern works.
+`pol-cc/skills-sapiens` is the original production deployment of this pattern (private repo). Its first active skill `analitica-comercial` covers `raw_sql_server.VistaInformeAlbaranesClientes` plus four ERP tables, and has been iterated over months — every "the agent got X wrong" became a `context.md` edit. The pattern works; note that skills-sapiens uses a slightly different on-disk layout (see next section).
+
+## Reconciliation with the skills-sapiens reference
+
+The production reference uses a slightly different on-disk layout than the four-file pattern above:
+
+```
+skills/<skill>/
+├── SKILL.md                    ← YAML frontmatter (name, description) — entry point, not descriptor.json
+├── context.md
+├── examples.sql
+└── sources/
+    └── <source>/
+        ├── schema.md           ← per-source column docs
+        └── semantics.md        ← per-source business meaning / column richness
+```
+
+Two differences:
+
+- **`SKILL.md` with YAML frontmatter** is the entry point instead of `descriptor.json`. The frontmatter carries `name` + `description` (same shape Claude Code skills use).
+- **Per-source `sources/<source>/schema.md` + `semantics.md`** instead of a single flat `schema.md` — one folder per underlying data source, with richer per-source column documentation split across schema and semantics.
+
+The trade-off:
+
+| | `descriptor.json` (this repo) | `SKILL.md` frontmatter (skills-sapiens) |
+|---|---|---|
+| Table allowlist | **Machine-enforceable** — the server reads `tables[]` and rejects out-of-scope queries | Not machine-read for enforcement; scope is documented in prose |
+| Readability | JSON, terse | More human-readable, fits the Claude Code skill convention |
+| Per-source detail | Single `schema.md` | Per-source `schema.md` + `semantics.md` — richer column docs |
+
+Both are valid. **This repo standardizes on `descriptor.json`** because the enforceable table allowlist is the security boundary (see above), and machine-enforcement beats prose for that job. A deployment may adopt the skills-sapiens `SKILL.md` + per-source layout if it prefers human-readable entry points and richer per-source semantics — just be aware the table allowlist then lives in prose, so enforcement must come from the BQ service account's IAM scope rather than the descriptor. The write tools (see [`mcp-github-writeback.md`](mcp-github-writeback.md)) address the skills-sapiens layout's logical keys (`context`, `examples`, `sources/<name>/schema`, `sources/<name>/semantics`).

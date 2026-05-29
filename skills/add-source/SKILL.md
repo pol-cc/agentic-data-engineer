@@ -5,7 +5,7 @@ description: "Add a new data source (Airbyte connector, BigQuery native transfer
 
 # add-source
 
-> **Status**: v0.0.1 — skeleton. Playbook in development.
+> **Status**: v0.4.0 — references written; playbook operational.
 
 ## What this skill does
 
@@ -82,7 +82,8 @@ For on-prem via Tailscale:
 
 ## References
 
-- [`references/airbyte-api-gotchas.md`](references/airbyte-api-gotchas.md) — *to be written* — API v2 served under `/api/public/v1/`, OAuth2 token flow, common 403/500 traps
-- [`references/airbyte-connectors-catalog.md`](references/airbyte-connectors-catalog.md) — *to be written* — when to pick which connector, common gotchas per source
-- [`references/bq-native-transfer.md`](references/bq-native-transfer.md) — *to be written* — GA4, Google Ads, Search Console native transfer setup
-- [`references/on-prem-tailscale.md`](references/on-prem-tailscale.md) — *to be written* — reaching SQL Server / MySQL / Postgres behind NAT via Tailscale
+- [`references/airbyte-api-gotchas.md`](references/airbyte-api-gotchas.md) — API v2 served under `/api/public/v1/`, OAuth2 token flow, common 403/500 traps, worked source→destination→connection→sync example
+- [`references/airbyte-connectors-catalog.md`](references/airbyte-connectors-catalog.md) — when to pick which connector, per-source auth + gotchas, sync-mode choice, schema lookup
+- [`references/bq-native-transfer.md`](references/bq-native-transfer.md) — GA4, Google Ads, Search Console native transfer setup (no Airbyte)
+- [`references/on-prem-tailscale.md`](references/on-prem-tailscale.md) — reaching SQL Server / MySQL / Postgres behind NAT via Tailscale
+- [`../../shared-references/remote-control-model.md`](../../shared-references/remote-control-model.md) — how the agent reaches the VPS over Tailscale SSH to run the Airbyte API `curl` calls

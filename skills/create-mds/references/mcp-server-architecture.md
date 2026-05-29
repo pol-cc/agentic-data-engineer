@@ -34,24 +34,28 @@ The reference design used here (taken from the `skills-sapiens` reference deploy
                                                        ┌────────────────┐
                                             ┌────────► │   BigQuery     │
                                             │          │  (analytics_*) │
-┌─────────────────────┐    HTTPS+OAuth     ┌───────────┴┐                │
+┌─────────────────────┐  HTTPS+GitHubOAuth ┌───────────┴┐                │
 │  AI client          │ ────────────────► │  MCP server ├──── run_bq_query
-│  (claude.ai,        │ ◄──────────────── │ (container) │ ─── list_skills
+│  (claude.ai,        │ ◄──────────────── │ (FastMCP)   │ ─── list_skills
 │   Claude Code,      │    JSON results   │  on VPS     │ ─── get_skill_context
-│   Cursor, etc)      │                   └──────┬──────┘ ─── (optional) propose_edit
-└─────────────────────┘                          │
-                                                 │
+│   Cursor, etc)      │                   └──────┬──────┘ ─── append_to_section ┐ write
+└─────────────────────┘                          │        ─── replace_in_file   ┘ tools
+                                                 │                                │
+                                                 ▼                                │ commit + push
+                                       /repo  (live git clone, rw)  ◄─────────────┘
+                                       └── skills/
+                                           ├── sales/
+                                           │   ├── descriptor.json
+                                           │   ├── context.md
+                                           │   ├── schema.md
+                                           │   └── examples.sql
+                                           ├── finance/
+                                           │   └── ...
+                                           └── operations/
+                                               └── ...
+                                                 │ git push origin main
                                                  ▼
-                                       /home/deploy/mcp-skills/
-                                       ├── sales/
-                                       │   ├── descriptor.json
-                                       │   ├── context.md
-                                       │   ├── schema.md
-                                       │   └── examples.sql
-                                       ├── finance/
-                                       │   └── ...
-                                       └── operations/
-                                           └── ...
+                                       origin/main  (GitHub — source of truth)
 ```
 
 The MCP server is **generic** — it doesn't hardcode any client's business logic. The per-skill folders are **specific** — they teach the agent what the warehouse looks like for *this* deployment.
@@ -77,7 +81,7 @@ The MCP server is public-facing (it must be, to connect to claude.ai which doesn
 
 GitHub OAuth wins for this profile (PYME, single-digit users, integrates with existing devops).
 
-> **The allowlist matters.** GitHub OAuth just confirms identity — the server enforces *which* identities are allowed. Without the allowlist, anyone with a GitHub account could connect. The `MCP_ALLOWED_USERS` env var is a simple JSON array; rotate by editing and restarting the container.
+> **The allowlist matters.** GitHub OAuth just confirms identity — the server enforces *which* identities are allowed. The `ALLOWED_GITHUB_USERS` env var is a comma-separated list of logins; `_authorize_request()` reads the `login` claim from the access token and checks it. **An empty allowlist means any authenticated GitHub user** — so set an explicit list, especially when write tools are enabled. Rotate by editing the env var and restarting the container.
 
 ## Why a container on the existing VPS
 
@@ -92,16 +96,18 @@ We deploy the MCP server as a Docker container on the same VPS that hosts Airbyt
 
 The same-VPS choice gives Phase 3 a near-zero marginal cost. The MCP container is small (~50 MB image, ~100 MB RAM running) and idles cheaply.
 
-## Why TypeScript with `@modelcontextprotocol/sdk`
+## Why FastMCP (Python)
 
-The MCP SDK is available in Python and TypeScript. For Phase 3 we recommend **TypeScript**:
+The reference deployment (`skills-sapiens`) is built on **FastMCP** in Python, and that's the default we recommend for Phase 3:
 
-- Larger ecosystem for HTTP servers and OAuth flows on Node.
-- Anthropic's "remote MCP" examples are TS-first.
-- The container is smaller (~50 MB vs ~200 MB for Python).
-- The BigQuery Node SDK is mature.
+- **Proven in production.** The `skills-sapiens` server runs FastMCP with Streamable HTTP behind Traefik — this is a deployed, iterated-on design, not a sketch.
+- **Auth is built in.** FastMCP ships `GitHubProvider`, which handles the GitHub OAuth handshake and token verification. No hand-rolled OAuth routes or session-cookie plumbing — the allowlist check is a few lines reading the `login` claim.
+- **Compact code.** The BigQuery client (`google.cloud.bigquery`) plus the git-subprocess calls for the write tools fit in a single small `server.py`. Less surface area to maintain.
+- **Streamable HTTP transport** is first-class, which is what claude.ai's remote connectors speak.
 
-For users who prefer Python: it works equally well. Swap the framework, keep the rest. This is principle 7 (escape hatch).
+The trade-off is image size: a `python:3.12-slim` image lands around 150-200 MB versus ~50 MB for Node/Alpine. For a container that idles cheaply on the existing VPS, that's a non-issue.
+
+TypeScript with `@modelcontextprotocol/sdk` remains a fully valid alternative — swap the framework, keep the rest (principle 7, escape hatch).
 
 ## Skill folder pattern: descriptor + context + schema + examples
 
@@ -139,20 +145,29 @@ A typical week:
 
 - The user asks claude.ai a question. The agent writes a query. The query is wrong because `context.md` is missing the definition of "active customer".
 - The user notices, points out the error.
-- In the same chat (or in a separate Claude Code session), the user (or the agent, with the `propose_edit` write tool) updates `context.md` to clarify the definition.
+- In the same chat (or in a separate Claude Code session), the user (or the agent, with the `append_to_section` / `replace_in_file` write tools) updates `context.md` to clarify the definition. The edit is committed + pushed to `main` automatically — see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
 - Next time anyone asks a similar question, the answer is correct.
 
 The skill folder is a **versioned, curated knowledge base** that gets sharper every time it's used. Git history shows the evolution. PRs can be used for changes that need review.
 
 This is the loop that justifies Phase 3. Without it, the warehouse is passive; with it, the warehouse learns.
 
+## Write tools — first-class, not deferred
+
+The server exposes **two write tools** — `append_to_section` and `replace_in_file` — that let an authenticated agent edit a skill's markdown and have the change committed + pushed to the client repo's `main` branch automatically. This is in production in `skills-sapiens` and is a core part of the value, not an optional extra.
+
+The value is the **iteration loop**: when claude.ai gets an answer wrong because `context.md` is missing a definition, the user corrects it *in the same chat*, the agent patches the file, and the fix is live for everyone on the next query — no SSH, no redeploy. This is what makes the warehouse *learn* rather than stay passive.
+
+Safety comes from **tool scoping**, not filesystem perms: the tools can only touch files inside an existing `skills/<skill>/` folder (a path-traversal guard enforces this). They cannot create new skill folders, change `descriptor.json` allowlists, or touch server code.
+
+Full mechanism — the fine-grained PAT, `claude-bot` identity + co-author trailer, `_sync_to_origin()` self-healing, `_commit_and_push()` rollback, the safety model, and how it coexists with `deploy.sh` — is documented in [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md). To run read-only, omit the PAT.
+
 ## What this Phase 3 deliberately does NOT do
 
 To keep scope manageable in v0.3.0:
 
-- **No write tools enabled by default.** `propose_edit` is documented but disabled. Read-only MCP is the v0.3.0 default. Enabling writes requires additional OAuth scope and PR review discipline — future work.
 - **No multi-tenant MCP.** One MCP server serves one client deployment. A "host multiple clients on one MCP server" pattern is possible but adds complexity.
-- **No audit log.** Queries are not persisted by the server. BigQuery's own audit logs cover usage (`INFORMATION_SCHEMA.JOBS_BY_PROJECT`). A future `add-mcp-audit-log` skill could add server-side logging if compliance demands it.
-- **No rate limiting.** GitHub OAuth + small allowlist + BQ's own quotas are considered sufficient at PYME scale. Add `rate-limiter-flexible` (Node) or equivalent if abuse becomes a concern.
+- **No audit log.** Queries are not persisted by the server. BigQuery's own audit logs cover usage (`INFORMATION_SCHEMA.JOBS_BY_PROJECT`); write-tool edits are recorded as commits in `git log`. A future `add-mcp-audit-log` skill could add server-side logging if compliance demands it.
+- **No rate limiting.** GitHub OAuth + small allowlist + BQ's own quotas are considered sufficient at PYME scale. Add a rate limiter if abuse becomes a concern.
 
 These are conscious omissions, not oversights. Add them later when the use case demands.

@@ -68,11 +68,11 @@ You need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Host
 
 ## Status
 
-**v0.3.0 — `create-mds` complete (all three phases).** The skill drives a deployment end-to-end: from zero through raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery), through dbt transforms on cron (Phase 2), to a public MCP server with GitHub OAuth and the first per-domain skill (Phase 3). The `add-dbt-model` and `add-mcp-skill` skills have their core convention references written.
+**v0.4.0 — `create-mds` complete + `add-source` operational + remote-control model documented.** The `create-mds` skill drives a deployment end-to-end: raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery), dbt transforms on cron (Phase 2), and a public MCP server with GitHub OAuth, BigQuery read tools, and **write tools** that let an AI client edit skill docs and push to `main` from chat (Phase 3). The `add-source` skill has full references (Airbyte API, connector catalog, BQ native transfers, on-prem via Tailscale). `add-dbt-model` and `add-mcp-skill` have their core convention references.
 
-The remaining three skills (`add-source`, `verify-pipeline`, `troubleshoot`) still have skeletal SKILL.md scaffolds; their `references/` are next. See each `skills/<name>/SKILL.md` header for individual status.
+A dedicated [`shared-references/remote-control-model.md`](shared-references/remote-control-model.md) explains how the agent drives the VPS and on-prem hosts headlessly over Tailscale SSH — the connective tissue every skill relies on.
 
-Next development priority: `add-source` references (Airbyte API + BQ native transfer + on-prem via Tailscale).
+The remaining two skills (`verify-pipeline`, `troubleshoot`) still have skeletal SKILL.md scaffolds; their `references/` are next. See each `skills/<name>/SKILL.md` header for individual status.
 
 ## License
 

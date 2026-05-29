@@ -62,7 +62,7 @@ Ask the user:
 | Custom domain for the MCP endpoint | DNS + Traefik | `mcp.acme-bakery.com` (the user must own this) |
 | GitHub usernames allowed to use the MCP | Auth allowlist | `["acme-cto", "acme-data-analyst"]` |
 | Which BigQuery domain to expose first | Bootstrap the first skill | `sales` (and we'll target `analytics.dim_customers`, `analytics.fact_orders`, etc.) |
-| Should the MCP also accept WRITE operations on the client repo? | Enables agents to update context.md files via commits | `yes` (recommended — see "Write tools" below) / `no` |
+| Should the MCP also accept WRITE operations on the client repo? | Enables agents to update context.md files via commits | `yes (recommended)` — see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md). `no` runs read-only. |
 
 If the user doesn't have a custom domain: this is a manual ceremony. Send them to Namecheap, Cloudflare, Hostinger Domains, or Porkbun. Wait until they have the domain.
 
@@ -74,9 +74,9 @@ Detailed instructions: [`mcp-server-architecture.md`](mcp-server-architecture.md
 
 Key decisions made by this playbook:
 
-- **Implementation language**: TypeScript using `@modelcontextprotocol/sdk` (Anthropic's official SDK). Reasoning: best documentation, most examples, fastest startup, smallest container.
-- **Transport**: HTTP/SSE (remote MCP). Required for claude.ai compatibility — stdio is local-only.
-- **Auth**: GitHub OAuth 2.1 with allowlist. Reasoning: the user already has a GitHub account, no password DB to manage, allowlist via env var.
+- **Implementation language**: FastMCP (Python) — the proven choice in the reference deployment, with `GitHubProvider` auth built in and a compact `server.py`. TypeScript with `@modelcontextprotocol/sdk` is a valid alternative.
+- **Transport**: Streamable HTTP (remote MCP). Required for claude.ai compatibility — stdio is local-only.
+- **Auth**: GitHub OAuth via FastMCP's `GitHubProvider` with a username allowlist (`ALLOWED_GITHUB_USERS`). Reasoning: the user already has a GitHub account, no password DB to manage, allowlist via env var.
 - **Hosting**: container on the same VPS as Airbyte/dbt, exposed via Traefik with Let's Encrypt TLS.
 - **Storage**: stateless container. All state (skill files, allowlist, BQ creds) is mounted from the host or env vars.
 
@@ -173,23 +173,25 @@ Settings:
 
 - **Application name**: `<client> MDS — MCP server`
 - **Homepage URL**: `https://mcp.<client-domain>.com`
-- **Authorization callback URL**: `https://mcp.<client-domain>.com/auth/github/callback`
+- **Authorization callback URL**: the callback `GitHubProvider` derives from `PUBLIC_BASE_URL` (confirm the exact path against the FastMCP version in use; it must match this setting exactly).
 
 Generate a client secret (single-use display — capture immediately).
 
 Capture into agent secrets:
 
-- `GITHUB_OAUTH_CLIENT_ID`
-- `GITHUB_OAUTH_CLIENT_SECRET`
+- `GITHUB_CLIENT_ID`
+- `GITHUB_CLIENT_SECRET`
 
 Plus an allowlist of GitHub usernames that the MCP server will accept:
 
-```jsonc
-// MCP_ALLOWED_USERS env var (JSON array)
-["acme-cto", "acme-data-analyst"]
+```bash
+# ALLOWED_GITHUB_USERS env var — comma-separated; empty = any authenticated GitHub user
+ALLOWED_GITHUB_USERS=acme-cto,acme-data-analyst
 ```
 
-> **Why GitHub OAuth specifically?** Three reasons: (1) the user already has GitHub credentials, no new password DB. (2) The MCP server reads/writes the client repo — same identity that's authorized for the repo is authorized for the MCP. (3) OAuth flow is standard; many MCP client libraries handle it natively.
+If write tools are enabled (Step 0), also capture a **fine-grained PAT** with `contents:write` on the client repo only — supplied as `GITHUB_TOKEN`, rotated ~every 90 days. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+
+> **Why GitHub OAuth specifically?** Three reasons: (1) the user already has GitHub credentials, no new password DB. (2) The MCP server reads/writes the client repo — same identity that's authorized for the repo is authorized for the MCP. (3) OAuth flow is standard; FastMCP's `GitHubProvider` handles it natively.
 
 ---
 
@@ -199,17 +201,17 @@ Detailed instructions: [`mcp-bigquery-server-deploy.md`](mcp-bigquery-server-dep
 
 Summary:
 
-1. Clone the MCP server source code into `/home/deploy/mcp-server/` on the VPS.
+1. Clone the MCP server source (FastMCP / Python) into `/home/deploy/mcp-server/` on the VPS, and clone the client repo (which holds the skill folders) as a live clone at `/root/<client>-mds`.
    - For v0.3.0: the template skeleton lives at [`add-mcp-skill/templates/mcp-skeleton/`](../../add-mcp-skill/templates/mcp-skeleton/) (to be written). Until that template exists, point at the user's choice of starter — `pol-cc/skills-sapiens` is the reference deployment.
-2. Build the Docker image.
+2. Build the Docker image (`python:3.12-slim`, `pip install -r requirements.txt`).
 3. Run as a Docker container with:
    - Mount `/home/deploy/secrets/bq-mcp-reader.json` read-only
-   - Mount `/home/deploy/mcp-skills/` (skill files) read-write
-   - Env vars for `GCP_PROJECT`, `BQ_LOCATION`, `GITHUB_OAUTH_CLIENT_ID/SECRET`, `MCP_ALLOWED_USERS`, `MAX_QUERY_BYTES`
+   - Mount the client-repo clone at `/repo` read-write (skills live here; write tools commit + push from it)
+   - Env vars: `GCP_PROJECT`, `BQ_LOCATION`, `GCP_CREDS_PATH`, `GITHUB_CLIENT_ID/SECRET`, `ALLOWED_GITHUB_USERS`, `MAX_BYTES_BILLED`, `MAX_ROWS`, `PUBLIC_BASE_URL`, and `GITHUB_TOKEN` (only if write tools enabled)
 4. Register the container with Traefik via Docker labels.
-5. Confirm TLS handshake + GitHub OAuth login from a browser.
+5. Confirm TLS + that the `/mcp` endpoint demands auth.
 
-Verification: visit `https://mcp.<client-domain>.com/` in a browser, complete GitHub OAuth, see a basic landing page or 200 response.
+Verification: `curl -I https://mcp.<client-domain>.com/mcp` returns a valid Let's Encrypt cert and a 401/406 (auth required), not a 502.
 
 ---
 
@@ -251,21 +253,26 @@ claude.ai loads the `sales` skill (or whatever the first skill is), composes a S
 
 ## Step 9 — Commit MCP code and skills to the client repo
 
+The skill folders already live **inside** the client repo (the VPS clone at `/repo` is that repo) — once a write tool or a local edit pushes them to `main`, they're committed by definition. What still needs committing is the **MCP server source** (`server.py`, `Dockerfile`, `requirements.txt`, `docker-compose.yml`, `deploy.sh`):
+
 ```bash
 # On the user's laptop, in the client repo
-# Pull the MCP server source (already on the VPS) and the skill files
-mkdir -p mcp-server mcp-skills
-scp -r deploy@<client>-mds:/home/deploy/mcp-server/* mcp-server/
-scp -r deploy@<client>-mds:/home/deploy/mcp-skills/* mcp-skills/
+# Pull the MCP server source from the VPS (the skills/ folders are already in the repo)
+mkdir -p mcp-server
+scp -r deploy@<client>-mds:/home/deploy/mcp-server/server.py \
+       deploy@<client>-mds:/home/deploy/mcp-server/Dockerfile \
+       deploy@<client>-mds:/home/deploy/mcp-server/requirements.txt \
+       deploy@<client>-mds:/home/deploy/mcp-server/docker-compose.yml \
+       mcp-server/
 
-git add mcp-server/ mcp-skills/
-git commit -m "Phase 3: deploy MCP server with first skill (<domain>)"
+git add mcp-server/ skills/
+git commit -m "Phase 3: deploy FastMCP server with first skill (<domain>)"
 ```
 
 Secrets stay out of the repo:
 
 - BigQuery service account key → only in `/home/deploy/secrets/` on VPS
-- GitHub OAuth client secret → only in container env var, captured locally in `~/.config/agentic-data-engineer/secrets/`
+- GitHub OAuth client secret and the write-tools PAT (`GITHUB_TOKEN`) → only in the container `.env`, captured locally in `~/.config/agentic-data-engineer/secrets/`
 
 The repo includes `mcp-server/.env.example` showing the env-var shape with placeholder values.
 
@@ -281,8 +288,10 @@ The repo includes `mcp-server/.env.example` showing the env-var shape with place
   "decisions": {
     "mcp_endpoint": "https://mcp.<client-domain>.com/mcp",
     "mcp_domain": "mcp.<client-domain>.com",
+    "mcp_impl": "fastmcp_python",
     "mcp_auth": "github_oauth",
     "mcp_allowed_users": ["acme-cto", "acme-data-analyst"],
+    "mcp_write_tools": true,
     "mcp_bq_service_account": "mcp-reader@<project>.iam.gserviceaccount.com",
     "mcp_first_skill": "<domain>",
     "traefik_used": true,
@@ -316,19 +325,18 @@ Phase 3 is complete. The MDS is now a full agentic platform.
 
 ## Write tools — the "edit context.md from chat" feature
 
-The reference deployment (`skills-sapiens`) implements **write tools** that let an authenticated agent commit changes to the client repo. Specifically:
+The reference deployment (`skills-sapiens`) implements **write tools** that let an authenticated agent edit a skill's markdown and have the change committed + pushed to the client repo's `main` branch automatically. This is a documented, enableable, first-class feature — not deferred.
 
-- `propose_skill_edit(skill_name, file, content_diff)` — proposes a change to a `context.md` / `schema.md` file, opens a PR on the client repo.
-- Approval is per-call, prompted to the user in chat. No silent writes.
+Two tools:
 
-This means a user chatting with claude.ai can say "the way we count active customers is wrong — it should exclude returns" and the agent can:
+- `append_to_section(skill, file_key, section, text)` — append under an existing heading.
+- `replace_in_file(skill, file_key, old, new)` — correct an existing definition.
 
-1. Find the relevant `context.md` section
-2. Propose the edit
-3. Open a PR
-4. The user reviews on GitHub
+This means a user chatting with claude.ai can say "the way we count active customers is wrong — it should exclude returns" and the agent edits the relevant `context.md` section; the server commits it (author `claude-bot`, co-authored by the requesting user) and pushes to `main`. Next query — from anyone — is correct. No SSH, no redeploy.
 
-Phase 3 v0.3.0 documents this pattern but does not auto-enable it. Enabling write tools requires extra OAuth scope and PR review discipline. Future skill (`enable-mcp-write-tools`) will cover the upgrade path. Until then: read-only MCP is safer for v0.3.0.
+The mechanism — fine-grained PAT (`contents:write`) in the origin remote URL, `_sync_to_origin()` self-healing before each write, `_commit_and_push()` with rollback on failure, and the path-traversal safety model (the tools can only touch files inside an existing `skills/<skill>/` folder; they CANNOT create new skill folders) — is documented in full at [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+
+Enable by setting `GITHUB_TOKEN` (Step 6). Omit it to run read-only. Record the choice in the marker as `mcp_write_tools`.
 
 ---
 
