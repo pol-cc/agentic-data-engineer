@@ -1,18 +1,21 @@
-# Choosing and configuring Airbyte connectors
+# Choosing connectors — escape-hatch catalog (default is dlt)
 
-End state: the right integration path is chosen for the source the user named, and — if it's an Airbyte connector — its `configuration` block is filled with the correct fields. This reference is the decision layer; `airbyte-api-gotchas.md` is the mechanics.
+> **Default is dlt, not Airbyte.** Build every SaaS API with a dlt `rest_api` source ([`dlt-rest-api-source.md`](dlt-rest-api-source.md)) and every database with a dlt `sql_database` source ([`dlt-sql-database-source.md`](dlt-sql-database-source.md)). This file is the **escape-hatch decision layer**: when a SaaS API defeats a dlt config and you fall back to a maintained Airbyte/Singer connector for that one source ([`airbyte-api-gotchas.md`](airbyte-api-gotchas.md)), this is where you check its auth, gotchas, and sync mode. The per-source quirks below are useful for a dlt config too — auth method, rate limits, and cursor advice carry over.
 
-## First decision — Airbyte, BQ native, or generic DB?
+End state: the right integration lane is chosen for the source the user named, and — if the Airbyte escape hatch is in play — its `configuration` block is filled with the correct fields.
 
-Before reaching for a connector, route the source into one of three lanes:
+## First decision — which lane?
 
-| The source is… | Path | Why |
+Before anything, route the source:
+
+| The source is… | Lane | Why |
 |---|---|---|
-| A **Google service** (GA4, Google Ads, Search Console) | **BigQuery native transfer** — NOT Airbyte | First-party, more reliable, free, saves an Airbyte connector slot. See [`bq-native-transfer.md`](bq-native-transfer.md). |
-| A **database physically in the client's office** (SQL Server, MySQL, Postgres on-prem) | **Generic DB connector in Airbyte, reached over Tailscale** | The DB stays private; Airbyte on the VPS dials its Tailscale hostname. See [`on-prem-tailscale.md`](on-prem-tailscale.md). |
-| **Anything else** — a SaaS API, or a cloud-hosted DB | **Airbyte connector** (this file) | Standard ELT path. |
+| A **Google service** (GA4, Google Ads, Search Console) | **BigQuery native transfer** — never dlt, never Airbyte | First-party, more reliable, free. See [`bq-native-transfer.md`](bq-native-transfer.md). |
+| A **database** (on-prem behind the NAT, or cloud-hosted) | **dlt `sql_database`** (over Tailscale for on-prem) | The DB stays private; the dlt pipeline on the VPS dials its Tailscale hostname. See [`dlt-sql-database-source.md`](dlt-sql-database-source.md) + [`on-prem-tailscale.md`](on-prem-tailscale.md). |
+| **A SaaS API** | **dlt `rest_api`** (default) | Short feedback loop, warehouse state, cattle-not-pet. See [`dlt-rest-api-source.md`](dlt-rest-api-source.md). |
+| **A SaaS API too gnarly for a dlt config** | **Escape hatch: Airbyte standalone / Singer tap** (this file) | Only when a declarative `rest_api` config can't express the pagination/auth, or a maintained connector is plainly better. Per source, not platform. |
 
-> **The rule worth memorizing:** Google services go through BigQuery's native transfers, never Airbyte. Everything else (SaaS APIs, databases) uses Airbyte. The author's real deployment runs Google Ads + GA4 natively and SQL Server + Factorial HR through Airbyte for exactly this reason.
+> **The rule worth memorizing:** Google services go through BigQuery's native transfers. Everything else defaults to **dlt** — `rest_api` for SaaS, `sql_database` for databases. Drop to a maintained Airbyte/Singer connector only when a specific SaaS API defeats a dlt config. The author's real deployment runs Google Ads + GA4 natively and the rest through agent-native pipelines for exactly this reason.
 
 ## Common PYME source catalog
 

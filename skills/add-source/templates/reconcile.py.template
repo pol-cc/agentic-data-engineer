@@ -1,0 +1,106 @@
+# reconcile.py — MANDATORY post-load check for <SOURCE_NAME>
+#
+# dlt fails SILENTLY: a wrong paginator or incremental cursor returns a clean load_info and
+# _dlt_loads.status = 0 while quietly dropping rows. load_info proves the load RAN; only this
+# script proves it is COMPLETE. A source is NOT done until reconcile passes.
+#
+# Run it after every load, and on every scheduled run (gate the load with it):
+#   python load.py && python reconcile.py
+# It EXITS NON-ZERO on any failure so cron/orchestration treats a gap as a failed run and ALERTS.
+#
+#   pip install "dlt[bigquery]" google-cloud-bigquery
+# Verify the BigQuery client API against your installed version.
+
+import sys
+from google.cloud import bigquery
+
+PROJECT = "<BQ_PROJECT_ID>"
+DATASET = "raw_<SOURCE_NAME>"
+TABLES = ["<RESOURCE_OR_TABLE>"]   # the tables this source loads
+
+bq = bigquery.Client(project=PROJECT)
+
+
+def _scalar(sql: str):
+    return list(bq.query(sql))[0]
+
+
+# --- 1. Load status: did dlt itself report success? -------------------------------------------
+def check_load_status() -> bool:
+    row = _scalar(
+        f"SELECT status FROM `{PROJECT}.{DATASET}._dlt_loads` "
+        f"ORDER BY inserted_at DESC LIMIT 1"
+    )
+    ok = row.status == 0
+    print(f"[{'ok' if ok else 'FAIL'}] _dlt_loads latest status={row.status} (0=succeeded)")
+    return ok
+
+
+# --- 2. Row count: source vs destination (the gap catcher) ------------------------------------
+def dest_count(table: str) -> int:
+    return _scalar(f"SELECT COUNT(*) AS n FROM `{PROJECT}.{DATASET}.{table}`").n
+
+
+def source_count(table: str) -> int:
+    # DB source:  SELECT COUNT(*) over the tailnet (SQLAlchemy / pymssql / psycopg2).
+    # API source: the `total`/`meta.total` field, or GET ...?per_page=1.
+    raise NotImplementedError("<implement source_count for this source>")
+
+
+def check_counts() -> bool:
+    ok = True
+    for t in TABLES:
+        s, d = source_count(t), dest_count(t)
+        tol = 0  # EXACT for replace/full loads; small tolerance only for in-flight rows on merge/incremental
+        if abs(s - d) > tol:
+            print(f"[FAIL] {t}: source={s} dest={d} — DATA GAP")
+            ok = False
+        else:
+            print(f"[ok] {t}: source={s} dest={d}")
+    return ok
+
+
+# --- 3. Freshness: is the newest row recent enough? -------------------------------------------
+def check_freshness() -> bool:
+    ok = True
+    for t in TABLES:
+        row = _scalar(
+            f"SELECT TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), MAX(<updated_at>), HOUR) AS lag_h "
+            f"FROM `{PROJECT}.{DATASET}.{t}`"
+        )
+        # For a daily source expect lag < ~26h. For time-lagged exports (GA4-style) compare to YESTERDAY.
+        fresh = row.lag_h is not None and row.lag_h < 26
+        print(f"[{'ok' if fresh else 'FAIL'}] {t}: freshness lag={row.lag_h}h")
+        ok = ok and fresh
+    return ok
+
+
+# --- 4. Sequence gaps: holes in a monotonic id stream -----------------------------------------
+def check_sequence_gaps() -> bool:
+    ok = True
+    for t in TABLES:
+        row = _scalar(
+            f"SELECT (MAX(<id>) - MIN(<id>) + 1) - COUNT(*) AS missing "
+            f"FROM `{PROJECT}.{DATASET}.{t}`"
+        )
+        # Only valid for a dense, monotonic integer key. Skip for UUID/sparse keys (rely on 2 & 3).
+        clean = row.missing == 0
+        print(f"[{'ok' if clean else 'FAIL'}] {t}: sequence missing={row.missing}")
+        ok = ok and clean
+    return ok
+
+
+def main():
+    results = [
+        check_load_status(),
+        check_counts(),
+        check_freshness(),
+        # check_sequence_gaps(),   # enable for dense-integer-key tables
+    ]
+    if not all(results):
+        sys.exit("[RECONCILE FAILED] data gap or stale load — investigate before trusting raw_<SOURCE_NAME>")
+    print("[RECONCILE OK]")
+
+
+if __name__ == "__main__":
+    main()

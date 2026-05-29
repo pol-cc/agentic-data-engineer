@@ -1,10 +1,12 @@
 # dbt cron scheduling
 
+> **ALTERNATIVE ORCHESTRATION (documented escape) — the default is a single linear script + systemd timers.** The default stack runs **one linear script** (`dlt load → dbt build → reconcile`) fired by a **systemd timer** ([`orchestration-systemd.md`](orchestration-systemd.md)). That design is more agent-native (`systemctl status` + `journalctl -u` beat a mute crontab for observability) and it **eliminates the race condition this file spends its first section guarding against** — because dlt and dbt run sequentially in one process, dbt can't start before ingestion finishes. **Use cron only when** you've inherited an existing crontab, the host has no systemd (a rare container/minimal base), or you deliberately schedule dbt independently of ingestion (e.g. the Airbyte alternative, where the two genuinely *are* separate jobs and the offset-tuning below applies). For the dlt default, **do not use cron — use the systemd timer.** The content below remains correct if you do run cron.
+
 End state: a cron job on the VPS that runs `dbt run && dbt test` daily, writes timestamped logs to a discoverable path, and survives reboots. Total time: ~10 minutes.
 
 ## Picking the schedule time
 
-The schedule is **the most operationally consequential decision** in Phase 2. If dbt runs before sources finish, downstream tables are built from incomplete raw data — a silent regression nobody notices until someone looks at yesterday's report.
+The schedule is **the most operationally consequential decision** when dbt is scheduled *separately* from ingestion (the Airbyte-alternative path). If dbt runs before sources finish, downstream tables are built from incomplete raw data — a silent regression nobody notices until someone looks at yesterday's report. (The dlt default sidesteps this entirely; see the banner above.)
 
 Reference timing (UTC) for the default stack:
 
@@ -173,7 +175,7 @@ crontab -e
 
 - **Cron runs but nothing happens, no log**: check `/var/log/syslog | grep CRON` — usually a permissions or path issue. Solve by making sure the script is executable and uses absolute paths only.
 - **Cron runs once and then never again**: a long-running `dbt run` (> 1h) overlaps the next day's schedule. dbt usually finishes in < 30 min for a starter project; if it grows, push the schedule earlier or split into incremental models.
-- **First run fails with "Permission denied" reading the BQ key**: the wrapper runs as `deploy` user; if you accidentally changed the key file owner to root, fix with `sudo chown deploy:deploy /home/deploy/secrets/bq-airbyte.json`.
+- **First run fails with "Permission denied" reading the BQ key**: the wrapper runs as `deploy` user; if you accidentally changed the key file owner to root, fix with `sudo chown deploy:deploy /home/deploy/secrets/bq-dlt.json`.
 - **Schedule drift between UTC and local time**: cron uses the system TZ. Confirm with `timedatectl`. The default on Hostinger Ubuntu images is UTC — verify before assuming.
 
 ## Marker state after this step

@@ -1,6 +1,8 @@
 # Phase 2 — Transform Layer Playbook (dbt)
 
-This is the orchestrator for Phase 2 of `create-mds`. Phase 1 must be complete. By the end of Phase 2 the deployment has a working dbt project on the VPS that runs daily on cron, transforming `raw_*` data into clean `analytics` tables.
+This is the orchestrator for Phase 2 of `create-mds`. Phase 1 must be complete. By the end of Phase 2 the deployment has a working dbt project on the VPS, invoked by the **single linear pipeline script** (dlt load → `dbt build` → reconcile) that a **systemd timer** fires daily — transforming `raw_*` data into clean `analytics` tables.
+
+> **dbt is NOT scheduled separately.** In the dlt stack, dbt is one stage of the linear pipeline, not its own cron job. `dlt load` runs first, then `dbt build` runs **only if the load succeeded** — so the old Airbyte-cron-vs-dbt-cron race condition is eliminated by construction (see [`orchestration-systemd.md`](orchestration-systemd.md)). cron-scheduling dbt independently is documented only as the [alternative](dbt-cron-scheduling.md).
 
 End state of Phase 2:
 
@@ -8,8 +10,8 @@ End state of Phase 2:
 - A dbt project at a stable path on the VPS, structured as `staging / intermediate / marts`
 - `profiles.yml` pointing at the BigQuery service account already in place (from Phase 1)
 - At least one `staging` model for each source already wired
-- A cron job running `dbt run` daily at a scheduled time after Airbyte syncs complete
-- Logs written to a discoverable path the agent can tail
+- `dbt build` wired as a stage of the linear pipeline script, fired by a systemd timer (no separate cron)
+- Run output in the journal the agent reads with `journalctl -u`
 - The dbt project committed to the client GitHub repo
 
 Estimated wall-clock time: **30-60 minutes**, ~15 minutes active.
@@ -42,11 +44,12 @@ fi
 
 If preflight passes, capture from the marker:
 
-- `decisions.vps_hostname_tailnet` → SSH target
+- `decisions.vps_hostname` → SSH target
 - `decisions.bq_project_id` → dbt target project
 - `decisions.bq_location` → dbt target location (e.g. `EU`)
-- `decisions.bq_service_account_email` → for `profiles.yml`
-- `stack.sources` → which raw datasets the agent should create staging models for
+- `decisions.bq_write_sa` → service account for `profiles.yml` (the dlt-writer SA; dbt reuses it by default — see [`dbt-profiles-bigquery.md`](dbt-profiles-bigquery.md))
+- `decisions.dlt_pipeline_dir` → where `run_pipeline.sh` lives, so Step 5 wires `dbt build` into it
+- `stack.sources` → which `raw_<source>` datasets (loaded by dlt) the agent should create staging models for
 
 ---
 
@@ -115,33 +118,27 @@ For each chosen table:
 
 This delegates to [`add-dbt-model`](../../add-dbt-model/SKILL.md) for each model — same skill, called with `staging` mode for each table. Phase 2 batches it for the initial set.
 
-> **Don't create marts in Phase 2.** Phase 2 only stands up the dbt infrastructure plus a clean staging layer. Marts are domain-specific and should be added one at a time afterwards via `add-dbt-model` once the user knows what they want to measure.
+> **Don't create marts in Phase 2.** Phase 2 only stands up the dbt infrastructure plus a clean staging layer. Marts are domain-specific and should be added one at a time afterwards via `add-dbt-model` once the user knows what they want to measure. When marts *are* added, the default materialization is **incremental + partitioned + clustered** (not a full table rebuild) — the `add-dbt-model` mart template encodes this so big fact tables don't rescan all of history (and rack up BigQuery bytes) on every run. See [`../../add-dbt-model/SKILL.md`](../../add-dbt-model/SKILL.md) and its [`templates/marts.sql.template`](../../add-dbt-model/templates/marts.sql.template).
 
-Verification: `dbt run --select staging` succeeds. All staging tables appear in `<project>.analytics_staging` (or whatever schema the staging config writes to).
+Verification: `dbt build --select staging` succeeds (build = run + test together). All staging tables appear in `<project>.analytics_staging` (or whatever schema the staging config writes to).
 
 ---
 
-## Step 5 — Schedule cron
+## Step 5 — Wire dbt into the linear pipeline + systemd timer
 
-Detailed instructions: [`dbt-cron-scheduling.md`](dbt-cron-scheduling.md).
+Detailed instructions: [`orchestration-systemd.md`](orchestration-systemd.md).
 
 Summary:
 
-1. Write `/home/deploy/dbt/run_dbt.sh` — a wrapper script that activates the venv, runs `dbt run` and `dbt test`, writes timestamped logs.
-2. Make it executable.
-3. Add a crontab entry as `deploy` user.
+1. Add `dbt build` as the middle stage of the single linear entrypoint script (`run_pipeline.sh` or `run_pipeline.py`): **dlt load → `dbt build` → reconcile**, sequential, each stage gated on the previous returning 0.
+2. Install a systemd `.service` (`Type=oneshot`, `ExecStart=` the script) and a `.timer` (`OnCalendar=*-*-* 09:00:00`, `Persistent=true`).
+3. Enable the **timer** (`sudo systemctl enable --now mds-pipeline.timer`).
 
-**Pick the schedule carefully** based on when sources finish:
+**Why no separate dbt schedule and no race condition.** dlt and dbt are now *one* script. `dbt build` cannot start until `dlt load` exited 0, so dbt never builds from a half-loaded raw layer — there is no second schedule to misalign and no slack window to guess. The old Airbyte-cron-vs-dbt-cron race is gone by construction. Pick a single `OnCalendar=` time after the slowest source has yesterday's data; that is the only schedule decision.
 
-- Airbyte default sync: 07:30 UTC, takes 30-60 min per source.
-- Google Ads Data Transfer: variable, often ~10:00-17:00 UTC.
-- GA4 Export: variable, often ~07:00-10:30 UTC for the previous day.
+> **`dbt build`, not `dbt run` + `dbt test`.** `build` interleaves each model with its tests in DAG order and stops downstream models when a test fails — one command, loud failure, exactly what the linear script wants.
 
-A safe default: **11:00 UTC** (13:00 Madrid time). This gives Airbyte syncs ~3h of slack and catches GA4 most days. If Google Ads is critical and runs later, push to 18:00 UTC and accept the day-of latency.
-
-> **Common race condition**: if Airbyte hasn't finished when dbt runs, staging models built from incomplete raw data corrupt downstream marts for a day. The marker stores the chosen schedule so [`troubleshoot`](../../troubleshoot/SKILL.md) can detect this pattern.
-
-Verification: trigger the cron job manually (`/home/deploy/dbt/run_dbt.sh`), confirm log file written, confirm tables updated.
+Verification: `sudo systemctl start mds-pipeline.service` then `systemctl status mds-pipeline.service` shows success; `journalctl -u mds-pipeline.service` shows the `dbt build` stage output; `systemctl list-timers` shows the next fire time.
 
 ---
 
@@ -174,15 +171,17 @@ A `profiles.yml.example` (with placeholder values) goes IN the repo so a fresh c
 {
   "stack": {
     "transform": "dbt_vps",
-    "orchestration": "cron"
+    "orchestration": "systemd_timer"
   },
   "decisions": {
     "dbt_project_path_on_vps": "/home/deploy/dbt/<client>-mds",
     "dbt_venv_path": "/home/deploy/dbt-env",
     "dbt_profiles_path_on_vps": "/home/deploy/.dbt/profiles.yml",
     "dbt_target_dataset": "analytics",
-    "dbt_cron_schedule": "0 11 * * *",
-    "dbt_cron_user": "deploy"
+    "orchestration": "systemd_timer",
+    "pipeline_entrypoint": "/home/deploy/dlt/<client>-mds/run_pipeline.sh",
+    "systemd_timer": "mds-pipeline.timer",
+    "pipeline_schedule": "*-*-* 09:00:00"
   },
   "history": [
     ...,
@@ -200,10 +199,11 @@ Commit the updated marker.
 Tell the user:
 
 - dbt project lives at `/home/deploy/dbt/<client>-mds/` on the VPS, mirrored in the client repo
-- Cron runs daily at 11:00 UTC (or whatever schedule was chosen)
+- The linear pipeline (`dlt load → dbt build → reconcile`) runs daily via the `mds-pipeline.timer` systemd timer at 09:00 UTC (or whatever `OnCalendar=` was chosen)
 - First successful run timestamp + table counts in the staging layer
-- "To add a mart, invoke me with 'create a mart for X'. I'll use the `add-dbt-model` skill."
-- "Use `verify-pipeline` to confirm dbt freshness alongside Airbyte's."
+- "Inspect any run with `systemctl status mds-pipeline.service` and `journalctl -u mds-pipeline.service`."
+- "To add a mart, invoke me with 'create a mart for X'. I'll use the `add-dbt-model` skill (incremental + partitioned + clustered by default)."
+- "Use `verify-pipeline` to confirm dbt freshness alongside dlt's reconciliation."
 
 Phase 2 is complete.
 
@@ -216,6 +216,6 @@ If Phase 2 is interrupted:
 - **dbt venv exists but project doesn't** → resume at Step 2.
 - **Project scaffold exists but profiles.yml missing** → resume at Step 3.
 - **Profiles configured but no models** → resume at Step 4.
-- **Models exist but no cron** → resume at Step 5.
+- **Models exist but no systemd timer** → resume at Step 5.
 
 Each step's reference file defines its own preflight to make this safe.

@@ -1,0 +1,57 @@
+# load.py — dlt sql_database pipeline for <SOURCE_NAME>  (on-prem DB over Tailscale)
+#
+# Copy into the client repo, replace every <PLACEHOLDER>, then on the VPS:
+#   pip install "dlt[bigquery]" sqlalchemy pymssql   # (psycopg2 for Postgres, pymysql for MySQL)
+#   python load.py        # reflects tables, writes raw_<SOURCE_NAME>, prints load_info
+#   python reconcile.py   # MANDATORY — source COUNT(*) vs destination, freshness, gaps
+#
+# THE ONE RULE: host = the TAILSCALE hostname (or 100.x tailnet IP), NOT the office LAN IP
+# (192.168.x) and NOT a public IP. See references/on-prem-tailscale.md.
+#
+# Credentials go in .dlt/secrets.toml (gitignored) or SOURCES__SQL_DATABASE__CREDENTIALS env var.
+# Use the READ-ONLY DB user (airbyte_ro / dlt_ro) — never the DB admin account.
+# Verify config keys against the installed dlt version: `pip show dlt`.
+#
+# .dlt/secrets.toml:
+#   [sources.sql_database.credentials]
+#   drivername = "mssql+pymssql"     # postgresql / mysql+pymysql
+#   host       = "<onprem-host-name>"   # Tailscale hostname — NOT 192.168.x, NOT public IP
+#   port       = 1433                   # 5432 Postgres, 3306 MySQL
+#   database   = "<erp_db>"
+#   username   = "<airbyte_ro>"
+#   password   = "<secret>"            # in secrets, never here
+
+import dlt
+from dlt.sources.sql_database import sql_database
+
+
+def make_source():
+    source = sql_database(
+        credentials=dlt.secrets["sources.sql_database.credentials"],
+        backend="pyarrow",                 # "sqlalchemy" (safe) | "pyarrow" (fast) | "connectorx" (fastest)
+        # table_names=["<orders>", "<customers>"],  # omit to reflect ALL readable tables (can be slow)
+    )
+
+    # --- incremental (optional): enable per table ONLY once the cursor is proven + reconcile is watching ---
+    # source = source.with_resources("<orders>")
+    # source.<orders>.apply_hints(
+    #     incremental=dlt.sources.incremental("<updated_at>", initial_value="<2024-01-01>")
+    # )
+
+    return source
+
+
+def main():
+    pipeline = dlt.pipeline(
+        pipeline_name="<SOURCE_NAME>",            # e.g. sql_server
+        destination="bigquery",
+        dataset_name="raw_<SOURCE_NAME>",         # e.g. raw_sql_server
+    )
+    load_info = pipeline.run(make_source())
+    print(load_info)
+    # load_info proves the load RAN, not that it is COMPLETE. A bad cursor leaves SILENT GAPS.
+    # Run reconcile.py — for a DB source you can COUNT(*) both sides, so there is no excuse to skip it.
+
+
+if __name__ == "__main__":
+    main()

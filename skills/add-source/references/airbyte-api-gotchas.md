@@ -1,6 +1,10 @@
-# Driving the Airbyte API headlessly
+# ESCAPE HATCH — driving a maintained connector (Airbyte / Singer) when dlt isn't the right fit
 
-End state: Claude can create sources, destinations, and connections and trigger syncs on the VPS's Airbyte OSS instance entirely over the REST API — no UI clicks. This is the workhorse of `add-source`.
+> **Default is dlt.** Use a maintained connector — Airbyte standalone or a Singer tap — **only when a SaaS API is too gnarly for a dlt `rest_api` config**: pathological pagination/auth a declarative config can't express, a high-quality maintained connector that already tames a notoriously fiddly source, or a CDC/log-based capture dlt's REST source doesn't offer. This is a **per-source** decision, not a platform. Build the source with [`dlt-rest-api-source.md`](dlt-rest-api-source.md) first; reach here only when it genuinely defeats you.
+>
+> The API facts below remain true if you do run Airbyte for that one source — they're kept verbatim so the escape hatch stays operable. **Reconciliation is still mandatory** for an escape-hatch source (see [`dlt-state-and-reconstruction.md`](dlt-state-and-reconstruction.md#mandatory-reconciliation-checks)): a maintained connector can fail or stall too — confirm row counts, freshness, and gaps regardless of which tool moved the rows.
+
+End state (escape hatch active): Claude can create sources, destinations, and connections and trigger syncs on a standalone Airbyte OSS instance entirely over the REST API — no UI clicks. This is the fallback when dlt isn't the right fit for a particular source.
 
 All calls run **on the VPS**, against `http://localhost:8000/api/public/v1/`. Port 8000 is bound to localhost only and is **not** public. Claude reaches it by SSH-ing into the VPS and running `curl` there — see [`../../../shared-references/remote-control-model.md`](../../../shared-references/remote-control-model.md) for the `ssh deploy@<client>-mds "..."` pattern. Every command below is what runs *inside* that SSH session.
 

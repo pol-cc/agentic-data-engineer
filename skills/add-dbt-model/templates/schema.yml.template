@@ -15,6 +15,12 @@
 #   - every enum column:  accepted_values
 #   - monetary columns:   optional dbt_utils.expression_is_true >= 0
 # Tests catch ~80% of upstream regressions for ~5 lines of YAML per column.
+#
+# Incremental fact marts (materialized='incremental', see
+# references/incremental-and-cost.md): the partition date column should never be
+# NULL — a NULL <DATE_COL> lands rows in a phantom partition that insert_overwrite
+# can't manage. Always give it `not_null`. A cheap row-count / freshness guard via
+# dbt_utils is shown at the bottom of this template.
 # =============================================================================
 
 version: 2
@@ -51,3 +57,25 @@ models:
         tests:
           - dbt_utils.expression_is_true:
               expression: ">= 0"
+
+# ---- Model-level guards for INCREMENTAL fact marts (optional) ---------------
+# For a fact_<event> built from templates/marts_incremental.sql.template, add
+# the partition column as not_null and a couple of cheap model-level checks.
+# These require the dbt_utils package. Append under the model's `- name:` block:
+#
+#   - name: fact_<EVENT>
+#     description: "One row per <EVENT>. Incremental, partitioned by <DATE_COL>."
+#     tests:
+#       # Table is not silently empty (catches a broken incremental run).
+#       - dbt_utils.expression_is_true:
+#           expression: "(select count(*) from {{ this }}) > 0"
+#       # Freshness: newest partition is within ~2 days (matches sources freshness).
+#       - dbt_utils.recency:
+#           datepart: day
+#           field: <DATE_COL>
+#           interval: 2
+#     columns:
+#       - name: <DATE_COL>
+#         description: "Partition date. Never NULL (NULL breaks insert_overwrite)."
+#         tests:
+#           - not_null

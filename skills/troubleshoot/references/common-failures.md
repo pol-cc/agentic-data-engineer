@@ -67,6 +67,113 @@ Reach this catalog from the [diagnostic flow](diagnostic-flow.md), which tells y
 
 ---
 
+## Silent data gap (dlt incremental cursor mis-set)
+
+- **Symptom** — the destination is **missing rows the source has**, but **nothing errored**: the dlt run reported success, `_dlt_loads` shows the load completed, freshness is green. The gap surfaces only as a reconciliation mismatch (`verify-pipeline` section 4b/4c) or a user noticing "where are last week's orders?". **This is dlt's signature failure mode** — a Python library that silently skips rather than crashing.
+- **Confirm**
+  ```bash
+  # Sequence gap in the destination (cheapest proof — a gap IS a missing row)
+  bq query --use_legacy_sql=false "
+    SELECT MIN(id) AS lo, MAX(id) AS hi, COUNT(DISTINCT id) AS present,
+           (MAX(id)-MIN(id)+1)-COUNT(DISTINCT id) AS missing
+    FROM \`<project>.<raw_dataset>.<table>\`"
+  # The cursor dlt actually used (stored in pipeline state)
+  bq query --use_legacy_sql=false "
+    SELECT * FROM \`<project>.<raw_dataset>._dlt_pipeline_state\` ORDER BY _dlt_load_id DESC LIMIT 1"
+  ```
+  Compare the destination window to the source for the same cursor range (see [verify-pipeline reconciliation](../../verify-pipeline/references/health-checks.md#4b-source-vs-destination-row-count--the-core-reconciliation)). `missing > 0` or `dest < source` confirms the gap.
+- **Root cause** — the incremental cursor is set wrong, so dlt's high-watermark skips rows. The usual culprits: (a) cursor column **not monotonic** (a mutable `updated_at` that goes backwards, or ties at the same second that the `>` filter drops); (b) wrong cursor column entirely (chose `created_at` but the source backfills old rows); (c) `initial_value` set past existing data, so the first load never picked up history; (d) source timezone vs cursor timezone mismatch shifting the boundary. A paginator that stops early (next-page token misread) produces the same gap symptom — check that too.
+- **Proposed fix** — backfill the gap, then correct the cursor. Backfill by re-loading the affected window with `write_disposition="merge"` (so re-loaded rows dedupe on the primary key, not duplicate), or for a bounded gap a one-off full refresh of the table:
+  ```bash
+  # Propose (mutating): re-run the dlt pipeline for the source with a corrected/earlier cursor.
+  ssh deploy@<client>-mds 'bash -s' <<'EOF'
+  set -euo pipefail
+  cd ~/dlt && source .venv/bin/activate
+  # edit the source's incremental(cursor_path=..., initial_value=...) to a safe earlier value first
+  python pipelines/<source>_pipeline.py
+  EOF
+  ```
+  Then re-run reconciliation to confirm `missing = 0`. Choosing a strictly-increasing cursor (an append-only `id` or an immutable `created_at`) is the durable fix; use `last_value_func` / a lag window if ties at the boundary are the cause. `# verify against the installed dlt version` for the exact incremental config keys.
+- **Prevention** — **reconciliation after every load is the prevention** (`verify-pipeline` runs it; `add-source` runs it at first load). Prefer a monotonic cursor; add a small overlap (re-pull a safety margin and let `merge` dedupe) rather than a razor-edge `>` boundary; keep a sequence/gap test on any table with a monotonic key.
+
+---
+
+## dlt load partial / `_dlt_loads` shows failed
+
+- **Symptom** — a dlt run died mid-write; the destination holds a *partial* package. `_dlt_loads` latest `status != 0` (or the latest `load_id` is in the data table but absent/incomplete in `_dlt_loads`). Often follows an OOM, a dropped source connection, or a BQ error mid-load.
+- **Confirm**
+  ```bash
+  bq query --use_legacy_sql=false "
+    SELECT load_id, schema_name, status,
+           TIMESTAMP_MILLIS(CAST(inserted_at AS INT64)) AS loaded_at
+    FROM \`<project>.<raw_dataset>._dlt_loads\` ORDER BY inserted_at DESC LIMIT 5"
+  ssh deploy@<client>-mds "journalctl -u dlt-<source>.service --since '24 hours ago' --no-pager | tail -60"
+  ```
+  A non-`0` latest `status` confirms the package aborted. (`# verify against the installed dlt version` — older versions may encode status differently.)
+- **Root cause** — the load was interrupted before dlt finalized the package: VPS OOM-killed the Python process, the source connection dropped, BigQuery rejected a batch (schema/quota), or the systemd unit was stopped mid-run. dlt's staging model means a partial package can leave the data table ahead of a completed `_dlt_loads` row.
+- **Proposed fix** — dlt is designed to recover by **re-running**: a fresh run resumes/normalizes the pending package or supersedes it (incremental state means it won't double-count merge-keyed rows). Address the root cause first (free RAM, fix the source/BQ error), then:
+  ```bash
+  ssh deploy@<client>-mds 'bash -s' <<'EOF'
+  set -euo pipefail
+  cd ~/dlt && source .venv/bin/activate
+  python pipelines/<source>_pipeline.py   # propose; mutating — re-runs the load
+  EOF
+  ```
+  After it completes, confirm `_dlt_loads` latest `status = 0` and re-run reconciliation. If a partial package left orphan rows that `merge` won't reconcile, propose a full refresh of that one table.
+- **Prevention** — give the dlt runner enough RAM (it's lighter than Airbyte, but a huge full-refresh still spikes); keep loads incremental so a re-run is cheap; the systemd unit's restart policy retries transient drops; reconciliation catches a partial that slipped through.
+
+---
+
+## Reconciliation mismatch source vs destination
+
+- **Symptom** — `verify-pipeline` ingest reconciliation (section 4) is **red/amber**: source row count and destination row count disagree beyond `reconciliation_tolerance`. The load itself may look fine (status 0, fresh) — the mismatch is the *only* signal.
+- **Confirm**
+  ```bash
+  # Destination
+  bq query --use_legacy_sql=false "SELECT COUNT(*) FROM \`<project>.<raw_dataset>.<table>\`"
+  # Source (SQL example over the tailnet from the VPS)
+  ssh deploy@<client>-mds "sqlcmd -S <onprem-host> -d <db> -Q 'SET NOCOUNT ON; SELECT COUNT(*) FROM <schema>.<table>'"
+  ```
+  For an incremental table, compare the **same cursor window** on both sides, not lifetime totals (the destination keeps history the source may have purged — see [reconciliation 4b](../../verify-pipeline/references/health-checks.md#4b-source-vs-destination-row-count--the-core-reconciliation)).
+- **Root cause** — decide by **sign**:
+  - `dest < source` (rows missing) → an ingest gap: usually the [silent cursor gap](#silent-data-gap-dlt-incremental-cursor-mis-set) above, or a [partial load](#dlt-load-partial--_dlt_loads-shows-failed). The serious case.
+  - `dest > source` (more rows in dest) → either legitimate (the source hard-deleted rows the warehouse retains — expected for an append/history table), or duplicates from a misconfigured `write_disposition` (`append` where `merge` was intended, so re-runs pile up).
+  - tiny delta that flickers → rows mutating mid-count (source written while you counted); re-count and confirm it settles.
+- **Proposed fix** — for `dest < source`, follow the cursor-gap or partial-load fix. For `dest > source` from duplicates, propose switching the resource to `write_disposition="merge"` with the right primary key and a dedupe/full-refresh of the affected table:
+  ```bash
+  # Inspect duplication before proposing a fix (read-only)
+  bq query --use_legacy_sql=false "
+    SELECT <pk>, COUNT(*) c FROM \`<project>.<raw_dataset>.<table>\`
+    GROUP BY <pk> HAVING c > 1 ORDER BY c DESC LIMIT 20"
+  ```
+  For an expected `dest > source` (source purges, warehouse retains), it's **not a failure** — document it and set `reconciliation_tolerance` or anchor the check to the cursor window so it stops flagging.
+- **Prevention** — pick `merge` + a stable primary key for any mutable source; reconcile on the cursor window for incremental tables; record known-divergent tables (purge-at-source) in the marker so reconciliation expects the gap.
+
+---
+
+## systemd timer didn't fire (dlt load never ran)
+
+- **Symptom** — no new dlt load this cycle: `_dlt_loads` has no recent `load_id`, raw tables stale though the source has new data, reconciliation/freshness amber-to-red. The dlt-on-VPS stack runs loads from a **systemd timer** (not cron — see [create-mds dlt scheduling]).
+- **Confirm**
+  ```bash
+  ssh deploy@<client>-mds "systemctl list-timers 'dlt-*' --all --no-pager"          # NEXT/LAST columns
+  ssh deploy@<client>-mds "systemctl status dlt-<source>.timer dlt-<source>.service --no-pager"
+  ssh deploy@<client>-mds "journalctl -u dlt-<source>.service --since '2 days ago' --no-pager | tail -80"
+  ssh deploy@<client>-mds "timedatectl | grep -E 'Time zone|System clock'"          # TZ + sync
+  ```
+  `LAST` far in the past, a `disabled`/`dead` timer, or a `failed` service unit confirms it.
+- **Root cause** — the timer is disabled or was never `enable --now`'d; the service unit `failed` (bad venv path, missing creds, the partial-load case above) and a non-`Restart=on-failure` policy left it stopped; an `OnCalendar=` expression that doesn't match the intended time (timer schedules are in the system TZ — confirm the VPS is UTC); or the box was down at the scheduled instant and `Persistent=true` wasn't set to catch up.
+- **Proposed fix** — depending on what's confirmed (each mutating — propose first):
+  ```bash
+  ssh deploy@<client>-mds "sudo systemctl enable --now dlt-<source>.timer"           # timer was off
+  ssh deploy@<client>-mds "sudo systemctl start dlt-<source>.service"                # run the load now to catch up
+  ssh deploy@<client>-mds "sudo systemctl reset-failed dlt-<source>.service"         # clear a failed state, then start
+  ```
+  If `OnCalendar=` is wrong, propose editing the timer unit and `daemon-reload`. To recover this cycle's data, propose a manual `systemctl start` of the service (or the pipeline script directly), then re-run reconciliation.
+- **Prevention** — `Persistent=true` on the timer so a missed window runs at next boot; `Restart=on-failure` on the service; the timer + service units are committed in the client repo (auditable, reinstallable); confirm the VPS TZ is UTC at setup. The systemd journal is the audit trail — `verify-pipeline`'s ingestion check reads `_dlt_loads`, which catches a missed fire as stale.
+
+---
+
 ## BigQuery free-tier quota exceeded
 
 - **Symptom** — dbt or MCP queries fail with `quotaExceeded` / `Quota exceeded`; new data stops appearing even though Airbyte succeeded.
@@ -152,21 +259,21 @@ Reach this catalog from the [diagnostic flow](diagnostic-flow.md), which tells y
 
 ---
 
-## MCP write-tools push failing (PAT expired)
+## MCP write-tools PR failing (PAT expired or wrong scope)
 
-- **Symptom** — write-tool calls (`append_to_section` / `replace_in_file`) error; MCP logs show `_sync_to_origin` or `git push` auth failures. Read queries still work.
+- **Symptom** — write-tool calls (`append_to_section` / `replace_in_file`) error; MCP logs show `_sync_to_origin`, branch-push, or `pr_open_failed` auth errors. Read queries still work. (Write tools are **off by default** — this only applies when `mcp_write_tools == true`. The tools open a PR, never push to `main`.)
 - **Confirm**
   ```bash
-  ssh deploy@<client>-mds "docker logs --tail 80 mcp | grep -iE 'push|sync_to_origin|denied|401|403'"
+  ssh deploy@<client>-mds "docker logs --tail 80 mcp | grep -iE 'push|sync_to_origin|pr_open_failed|denied|401|403|422'"
   jq -r '.decisions.mcp_write_tools' .agentic-data-engineer.json   # confirm write tools are enabled
   ```
-- **Root cause** — the fine-grained PAT (`GITHUB_TOKEN`, `contents:write` on the client repo) expired or was rotated. PATs are rotated ~every 90 days per [phase-3-agentic-layer](../../create-mds/references/phase-3-agentic-layer.md).
-- **Proposed fix** — the user generates a fresh fine-grained PAT (manual ceremony on GitHub), then propose updating the container env and recreating it:
+- **Root cause** — the fine-grained PAT (`GITHUB_TOKEN`) expired, was rotated, or is missing a scope. The PR posture needs **both** `contents:write` (push the `claude-bot/edit-<ts>` branch) **and** `pull_requests:write` (open the PR). A 403 on push = missing/expired `contents:write`; a 403 on PR-open = missing `pull_requests:write`; a 422 = a PR for that branch already exists or the branch matched base. PATs rotate ~every 90 days per [phase-3-agentic-layer](../../create-mds/references/phase-3-agentic-layer.md).
+- **Proposed fix** — the user generates a fresh fine-grained PAT with both scopes (manual ceremony on GitHub), then propose updating the container env and recreating it:
   ```bash
   # After the user supplies the new PAT into the container .env (GITHUB_TOKEN):
   ssh deploy@<client>-mds "cd /home/deploy/mcp-server && docker compose up -d --force-recreate mcp"   # propose
   ```
-- **Prevention** — calendar the PAT rotation; keep the token only in the container `.env` (never the repo); if write tools aren't needed, run read-only (omit `GITHUB_TOKEN`).
+- **Prevention** — calendar the PAT rotation; grant exactly `contents:write` + `pull_requests:write` on the one repo (least privilege); keep the token only in the container `.env` (never the repo); if write tools aren't needed, run read-only (`MCP_WRITE_TOOLS=off`, the default — no PAT at all). See [mcp-github-writeback: Security posture](../../add-mcp-skill/references/mcp-github-writeback.md#security-posture).
 
 ---
 
@@ -215,10 +322,14 @@ Reach this catalog from the [diagnostic flow](diagnostic-flow.md), which tells y
 | Tailscale on-prem offline | `tailscale status \| grep offline` | 1 |
 | abctl OOM | `dmesg \| grep 'killed process'` | 2 |
 | VPS disk full | `df -h /` | 2 |
+| systemd timer didn't fire (dlt) | `systemctl list-timers 'dlt-*'` — LAST stale | 2 → 3 |
 | Airbyte 403 | token call returns 403 | 3 |
+| dlt partial load | `_dlt_loads` latest `status != 0` | 3 → 4 |
+| Silent data gap (cursor mis-set) | sequence `missing > 0`, or dest < source | 4 |
+| Reconciliation mismatch src vs dest | source/dest count delta beyond tolerance | 4 |
 | dbt race condition | dbt `generated_at` < sync time | 3 → 5 |
 | BQ quota exceeded | `JOBS_BY_PROJECT` reason `quota` | 4 |
 | GA4 missing today (non-error) | latest table = yesterday | 4 |
 | dbt cron never fired | no log today | 5 |
 | MCP 502 / down | endpoint 502, container exited | 6 |
-| MCP PAT expired | logs: push denied | 6 |
+| MCP PAT expired | logs: branch push / PR-open denied | 6 |

@@ -4,12 +4,17 @@ This is the orchestrator for Phase 3 of `create-mds`. Phase 1 and Phase 2 must b
 
 This is the phase that **turns the MDS into an agentic platform** — moving from passive reporting to natural-language query and incremental knowledge curation.
 
-End state of Phase 3:
+> **Phase 3 is opt-in but recommended — the agentic cherry on top, not a requirement.** A deployment is a valid, valuable Modern Data Stack at the **end of Phase 2** (raw ingested by dlt + dbt marts, queryable from the BQ console and any BI tool). Phase 3 is the heaviest, most exposed piece in the whole stack — a public server, a custom domain, TLS, OAuth, and an AI agent pointed at the warehouse — so it is **activated only for clients who want the agentic query layer.** Recommend it hard (it's where the stack's option value lives — see [the bottom of this file](#what-gets-lost-if-phase-3-is-skipped)); never impose it. If the client declines, stop after Phase 2 cleanly and record `"mcp": false` — the build is done.
+
+> **Security framing — this layer exposes externally-ingested data to an AI agent.** The MCP layer is the one place where data that arrived from outside the org (synced via dlt) gets handed to an LLM that may also hold write capability. That makes it the highest-leverage attack surface in the stack. Three postures are baked into the steps below and are **not optional** once MCP is opted in: a **dedicated read-only BigQuery service account** (not the dlt writer), **write tools OFF by default** (and PR-not-push when on), and treating **all synced data as untrusted** in any context an agent reads it (prompt-injection vector). Read [`mcp-server-architecture.md`](mcp-server-architecture.md#security-model) for the rationale before deploying.
+
+End state of Phase 3 (when opted in):
 
 - An MCP server container running on the VPS behind Traefik with TLS
 - A public HTTPS endpoint at `mcp.<client-domain>.com/mcp` (or similar)
 - GitHub OAuth 2.1 protecting the endpoint with an allowlist of authorized users
-- A BigQuery service account scoped to read access on `analytics_*` datasets
+- A **dedicated read-only** BigQuery service account scoped to read access on the analytics dataset (NOT the dlt writer SA)
+- **Write tools OFF** (the default) — read-only query layer. If the client opts into write tools, they open a PR for human review, never push to `main` (see Step 0)
 - One "skill" registered (`descriptor.json` + `context.md` + `schema.md` + `examples.sql`) covering a domain the user picks (typically sales or finance — whatever has the cleanest marts ready)
 - The MCP server code and skill files committed to the client repo
 - The marker file updated; `verify-pipeline` includes the MCP health check
@@ -45,6 +50,23 @@ fi
 # This is a soft check — proceed but warn if no marts
 ```
 
+**Opt-in gate.** Phase 3 is opt-in. Before running any step below, confirm the client actually wants the agentic query layer:
+
+```
+The MDS is complete and working at the end of Phase 2 — raw data ingested,
+dbt marts built, queryable from BigQuery and any BI tool.
+
+Phase 3 adds the agentic layer: a public, authenticated MCP server so you (and
+claude.ai / Claude Code / Cursor) can ask the warehouse questions in natural
+language. It's the recommended cherry on top, but it's the heaviest, most-exposed
+part of the stack (public server, your own domain, TLS, GitHub OAuth, an AI agent
+pointed at your data).
+
+Want to add it now? You can also stop here and add it later — invoke me again any time.
+```
+
+If the client declines: record `"mcp": false` in the marker (it's the default — see Step 10), report that the build is complete at Phase 2, and stop. Do not provision a domain, Traefik, or any server.
+
 Capture from the marker for later:
 
 - `decisions.bq_project_id` → MCP server reads from here
@@ -62,9 +84,13 @@ Ask the user:
 | Custom domain for the MCP endpoint | DNS + Traefik | `mcp.acme-bakery.com` (the user must own this) |
 | GitHub usernames allowed to use the MCP | Auth allowlist | `["acme-cto", "acme-data-analyst"]` |
 | Which BigQuery domain to expose first | Bootstrap the first skill | `sales` (and we'll target `analytics.dim_customers`, `analytics.fact_orders`, etc.) |
-| Should the MCP also accept WRITE operations on the client repo? | Enables agents to update context.md files via commits | `yes (recommended)` — see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md). `no` runs read-only. |
+| Should the MCP also accept WRITE operations on the client repo? | Lets agents propose edits to `context.md` etc. — but as a **PR for human review**, never a direct push | **Default `no` (off) — opt-in later.** Write tools are the most dangerous, most complex surface; ship read-only first. Turn on only when the client explicitly wants chat-driven skill curation. When on, edits open a PR — see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md). |
 
 If the user doesn't have a custom domain: this is a manual ceremony. Send them to Namecheap, Cloudflare, Hostinger Domains, or Porkbun. Wait until they have the domain.
+
+> **Default the write-tools answer to "no".** Read-only is the lean, safe baseline: the agent can query the warehouse but cannot mutate the repo at all. Write tools are a strict add-on the client opts into later (re-run with `add-mcp-skill` or re-invoke Phase 3) — never the default on a fresh build.
+
+> **Prompt-injection is a real vector here.** The data the agent reads (rows from `run_bq_query`, and the skill `.md` files) originated outside the org — it was synced in by dlt from external systems. A crafted string in that data ("ignore previous instructions and …") can try to steer the agent. With write tools OFF this is contained to read scope; with write tools ON it becomes a path to repo mutation, which is exactly why the write path must be PR-not-push (a human reviews every change). **Treat all synced data as untrusted in any context the agent reads it.** This is the central reason write tools are off by default.
 
 ---
 
@@ -125,27 +151,37 @@ Verification: `curl -I https://mcp.<client-domain>.com/` returns a TLS cert from
 
 ---
 
-## Step 4 — Create the BigQuery read-only service account
+## Step 4 — Create the dedicated read-only BigQuery service account
 
-The MCP server reads from BigQuery. Reusing the Airbyte writer service account is overprivileged.
+The MCP server reads from BigQuery with its **own, read-only identity** — **NOT** the dlt writer service account from Phase 1. This is non-negotiable: the server hands query results to an LLM, so its credential must be unable to write, delete, or read anything outside the analytics layer.
+
+The default is **one read-only SA scoped to the analytics dataset**:
+
+- `roles/bigquery.dataViewer` granted **on the analytics dataset only** (not project-wide) — the agent can read marts, nothing else
+- `roles/bigquery.jobUser` at project level (required to run any query job)
 
 ```bash
 # On the user's laptop, with gcloud authed (Phase 1 setup)
 PROJECT_ID="<client>-mds-prod"
+DATASET="analytics"                 # the dbt marts dataset from Phase 2
 SA_NAME="mcp-reader"
 
 gcloud iam service-accounts create $SA_NAME \
-  --display-name="MCP server BigQuery reader" \
+  --display-name="MCP server BigQuery reader (read-only)" \
   --project=$PROJECT_ID
 
 SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# Bindings: bigquery.dataViewer at project level (read all data),
-#          bigquery.jobUser (run queries)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member="serviceAccount:$SA_EMAIL" \
-  --role="roles/bigquery.dataViewer"
+# dataViewer scoped to the analytics DATASET (least privilege — not project-wide).
+# Granted at the dataset level so the agent cannot read raw/staging or other datasets.
+bq update --dataset \
+  --source <(bq show --format=prettyjson "${PROJECT_ID}:${DATASET}" \
+    | jq --arg sa "$SA_EMAIL" \
+        '.access += [{"role":"READER","userByEmail":$sa}]') \
+  "${PROJECT_ID}:${DATASET}"
+# (Equivalent: edit the dataset's access list to add the SA as READER.)
 
+# jobUser at project level — needed to run query jobs (does NOT grant data access)
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA_EMAIL" \
   --role="roles/bigquery.jobUser"
@@ -161,7 +197,9 @@ scp $KEY_PATH deploy@<client>-mds:/home/deploy/secrets/bq-mcp-reader.json
 ssh deploy@<client>-mds "chmod 600 /home/deploy/secrets/bq-mcp-reader.json"
 ```
 
-> **Why a separate service account?** Principle of least privilege. The MCP server should be unable to write to BigQuery. If the MCP code or container is ever compromised, the attacker can read all data but cannot modify or delete it. Airbyte continues to write with its separate, more-privileged identity.
+> **Why a dedicated read-only SA (not the dlt writer)?** Principle of least privilege, sharpened by the threat model: this credential is reachable by an AI agent that reads untrusted, externally-synced data. It must be **unable** to write or delete in BigQuery, and **unable** to read raw/staging or any non-analytics dataset. If the MCP code or container is ever compromised — or the agent is steered by a prompt-injection payload in the data — the blast radius is "read the marts", nothing more. dlt keeps writing with its separate, more-privileged identity, which is never mounted into this container.
+
+> **Hardening OPTION (not the default): per-skill service accounts.** A deployment that wants tighter isolation can give each MCP skill its own read-only SA scoped to just that skill's tables, and select the credential per skill. That's a documented option for high-sensitivity domains — **not** the default. Do **not** create N service accounts on a fresh build; one read-only SA scoped to the analytics dataset is the lean baseline. Add per-skill SAs only when a client explicitly needs that separation.
 
 ---
 
@@ -189,7 +227,7 @@ Plus an allowlist of GitHub usernames that the MCP server will accept:
 ALLOWED_GITHUB_USERS=acme-cto,acme-data-analyst
 ```
 
-If write tools are enabled (Step 0), also capture a **fine-grained PAT** with `contents:write` on the client repo only — supplied as `GITHUB_TOKEN`, rotated ~every 90 days. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+If — and only if — write tools are enabled (Step 0; **off by default**), also capture a **fine-grained PAT** scoped to the client repo only, with the permissions the write path needs to **open a PR** (`contents:write` to push a branch + `pull_requests:write` to open the PR) — supplied as `GITHUB_TOKEN`, rotated ~every 90 days. The write tools create a branch and open a PR for human review; they do **not** push to `main`. Exact mechanism and scopes: [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md). Skip this entirely for the default read-only deployment.
 
 > **Why GitHub OAuth specifically?** Three reasons: (1) the user already has GitHub credentials, no new password DB. (2) The MCP server reads/writes the client repo — same identity that's authorized for the repo is authorized for the MCP. (3) OAuth flow is standard; FastMCP's `GitHubProvider` handles it natively.
 
@@ -205,9 +243,9 @@ Summary:
    - For v0.3.0: the template skeleton lives at [`add-mcp-skill/templates/mcp-skeleton/`](../../add-mcp-skill/templates/mcp-skeleton/) (to be written). Until that template exists, point at the user's choice of starter — `pol-cc/skills-sapiens` is the reference deployment.
 2. Build the Docker image (`python:3.12-slim`, `pip install -r requirements.txt`).
 3. Run as a Docker container with:
-   - Mount `/home/deploy/secrets/bq-mcp-reader.json` read-only
-   - Mount the client-repo clone at `/repo` read-write (skills live here; write tools commit + push from it)
-   - Env vars: `GCP_PROJECT`, `BQ_LOCATION`, `GCP_CREDS_PATH`, `GITHUB_CLIENT_ID/SECRET`, `ALLOWED_GITHUB_USERS`, `MAX_BYTES_BILLED`, `MAX_ROWS`, `PUBLIC_BASE_URL`, and `GITHUB_TOKEN` (only if write tools enabled)
+   - Mount the **read-only** SA key `/home/deploy/secrets/bq-mcp-reader.json` read-only (the dlt writer key is never mounted here)
+   - Mount the client-repo clone at `/repo` (read-only is enough for the default read-only deployment; the write tools, when enabled, need it read-write to stage a branch)
+   - Env vars: `GCP_PROJECT`, `BQ_LOCATION`, `GCP_CREDS_PATH`, `GITHUB_CLIENT_ID/SECRET`, `ALLOWED_GITHUB_USERS`, `MAX_BYTES_BILLED`, `MAX_ROWS`, `PUBLIC_BASE_URL`. Write tools are **off by default** — set `GITHUB_TOKEN` (and the write flag) **only** if the client opted in at Step 0.
 4. Register the container with Traefik via Docker labels.
 5. Confirm TLS + that the `/mcp` endpoint demands auth.
 
@@ -253,7 +291,7 @@ claude.ai loads the `sales` skill (or whatever the first skill is), composes a S
 
 ## Step 9 — Commit MCP code and skills to the client repo
 
-The skill folders already live **inside** the client repo (the VPS clone at `/repo` is that repo) — once a write tool or a local edit pushes them to `main`, they're committed by definition. What still needs committing is the **MCP server source** (`server.py`, `Dockerfile`, `requirements.txt`, `docker-compose.yml`, `deploy.sh`):
+The skill folders already live **inside** the client repo (the VPS clone at `/repo` is that repo) — a local edit + push (or, if write tools are enabled, a merged PR) commits them by definition. What still needs committing is the **MCP server source** (`server.py`, `Dockerfile`, `requirements.txt`, `docker-compose.yml`, `deploy.sh`):
 
 ```bash
 # On the user's laptop, in the client repo
@@ -280,6 +318,20 @@ The repo includes `mcp-server/.env.example` showing the env-var shape with place
 
 ## Step 10 — Update the marker
 
+**Default (Phase 3 not opted in).** MCP is opt-in, so the default marker state is simply:
+
+```jsonc
+{
+  "stack": {
+    "mcp": false
+  }
+}
+```
+
+`"mcp": false` is the correct, complete end state for a deployment that stopped after Phase 2. Nothing else in this step applies — the build is done.
+
+**When Phase 3 is opted in and deployed:**
+
 ```jsonc
 {
   "stack": {
@@ -291,8 +343,9 @@ The repo includes `mcp-server/.env.example` showing the env-var shape with place
     "mcp_impl": "fastmcp_python",
     "mcp_auth": "github_oauth",
     "mcp_allowed_users": ["acme-cto", "acme-data-analyst"],
-    "mcp_write_tools": true,
+    "mcp_write_tools": false,
     "mcp_bq_service_account": "mcp-reader@<project>.iam.gserviceaccount.com",
+    "mcp_bq_read_scope": "dataset:analytics",
     "mcp_first_skill": "<domain>",
     "traefik_used": true,
     "github_oauth_client_id_ref": "secrets/<client>-mcp-github-oauth.json"
@@ -304,7 +357,7 @@ The repo includes `mcp-server/.env.example` showing the env-var shape with place
 }
 ```
 
-Commit.
+`"mcp_write_tools": false` is the default even when MCP is deployed — read-only is the baseline. Flip it to `true` only when the client opted into the PR-not-push write path (Step 0). Commit.
 
 ---
 
@@ -323,20 +376,20 @@ Phase 3 is complete. The MDS is now a full agentic platform.
 
 ---
 
-## Write tools — the "edit context.md from chat" feature
+## Write tools — the "propose a context.md edit from chat" feature (OFF by default)
 
-The reference deployment (`skills-sapiens`) implements **write tools** that let an authenticated agent edit a skill's markdown and have the change committed + pushed to the client repo's `main` branch automatically. This is a documented, enableable, first-class feature — not deferred.
+Write tools let an authenticated agent **propose** an edit to a skill's markdown from chat. They are **off by default** — the lean, safe baseline is read-only — and are a strict opt-in (Step 0). They are the most dangerous, most complex surface in Phase 3, because they connect an LLM (reading untrusted, externally-synced data) to a repo that drives the agent's own behavior.
 
 Two tools:
 
 - `append_to_section(skill, file_key, section, text)` — append under an existing heading.
 - `replace_in_file(skill, file_key, old, new)` — correct an existing definition.
 
-This means a user chatting with claude.ai can say "the way we count active customers is wrong — it should exclude returns" and the agent edits the relevant `context.md` section; the server commits it (author `claude-bot`, co-authored by the requesting user) and pushes to `main`. Next query — from anyone — is correct. No SSH, no redeploy.
+When enabled, a user chatting with claude.ai can say "the way we count active customers is wrong — it should exclude returns" and the agent edits the relevant `context.md` section. Critically, the server does **NOT push to `main`** — it **creates a branch and opens a pull request** (via the GitHub API / `gh`) for a human to review and merge. The fix lands when a person approves it, not the instant the agent writes it. This is the guardrail that makes the prompt-injection vector survivable: even if injected data steers the agent into a malicious edit, the change is just a PR sitting for review, not a live mutation.
 
-The mechanism — fine-grained PAT (`contents:write`) in the origin remote URL, `_sync_to_origin()` self-healing before each write, `_commit_and_push()` with rollback on failure, and the path-traversal safety model (the tools can only touch files inside an existing `skills/<skill>/` folder; they CANNOT create new skill folders) — is documented in full at [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+The full mechanism — fine-grained PAT scoped to this repo, branch creation, PR open via the GitHub API, the path-traversal safety model (the tools can only touch files inside an existing `skills/<skill>/` folder; they CANNOT create new skill folders or change `descriptor.json` allowlists) — is documented in [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md) (owned and hardened separately). Defer to that doc for exact branch/PR specifics.
 
-Enable by setting `GITHUB_TOKEN` (Step 6). Omit it to run read-only. Record the choice in the marker as `mcp_write_tools`.
+Enable by setting `GITHUB_TOKEN` plus the write-enable flag (Step 6) **only if the client opted in**. Default behavior — `GITHUB_TOKEN` unset — is read-only. Record the choice in the marker as `mcp_write_tools` (default `false`).
 
 ---
 
@@ -355,7 +408,7 @@ Each reference's preflight catches the state mismatch.
 
 ## What gets lost if Phase 3 is skipped
 
-A deployment can stop at Phase 2 forever — the MDS still works for traditional BI (dashboards, scheduled reports, manual SQL via the BQ console). What you lose:
+Skipping Phase 3 is a legitimate end state, not a half-finished build — the MDS still works for traditional BI (dashboards, scheduled reports, manual SQL via the BQ console). What the client *forgoes* by not opting in (the case for recommending it):
 
 - Natural-language exploration of the warehouse from chat
 - Per-skill "this is what these tables mean" curation that improves over time

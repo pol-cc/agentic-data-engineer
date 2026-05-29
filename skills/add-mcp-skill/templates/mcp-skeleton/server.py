@@ -13,18 +13,29 @@ What it exposes:
                                descriptor.json table allowlist, byte + row caps
   - list_skills()              skills discovered under <repo>/skills
   - get_skill_context(skill)   returns the skill's context.md / schema.md / examples.sql
-  - append_to_section(...)     write tool: append under a markdown heading, commit + push
-  - replace_in_file(...)       write tool: replace an exact substring, commit + push
+  - append_to_section(...)     WRITE tool: append under a markdown heading, open a PR
+  - replace_in_file(...)       WRITE tool: replace an exact substring, open a PR
+
+WRITE TOOLS ARE OFF BY DEFAULT. They register only when MCP_WRITE_TOOLS is on
+(and a GITHUB_TOKEN is present). The server exposes externally-ingested
+(untrusted) data to an AI agent, so a write tool is a prompt-injection path:
+attacker-controlled synced row -> agent -> repo write. Two controls break that
+chain: (1) writes default OFF; (2) when ON they OPEN A PULL REQUEST for human
+review — they NEVER push to main. See
+add-mcp-skill/references/mcp-github-writeback.md ("Security posture").
 
 SAFETY MODEL (do not weaken these):
   - SELECT-only: every statement parsed must be a single SELECT (no DML/DDL/procedures).
   - Table allowlist: a BQ dry-run reports referenced tables; any table not in the
     skill's descriptor.json `tables[]` is rejected.
   - Caps: maximum_bytes_billed + MAX_ROWS on every query.
+  - Write tools OFF by default: MCP_WRITE_TOOLS must be explicitly on to register them.
+  - PR-not-push: enabled write tools commit to a claude-bot/edit-<ts> branch and
+    open a PR (base=main) via the GitHub API. They never push to main.
   - Path-traversal guard: write tools resolve only to files INSIDE skills/<skill>/.
   - Sync-before-write: _sync_to_origin() refuses a dirty tree and hard-resets to
-    origin/main before any edit, so the push fast-forwards.
-  - Rollback-on-push-fail: a failed push rolls the local commit back.
+    origin/main before branching, so the PR diffs cleanly against current main.
+  - Rollback-on-failure: a failed branch push or PR-open deletes the orphan branch.
 
 Sections marked `# TODO: harden` are intentionally simplified — fill them in for
 production. The SAFETY-critical code below is NOT a stub.
@@ -36,9 +47,13 @@ installed FastMCP version — the exact accessor for the verified token's `login
 claim may differ between releases.  # verify against installed FastMCP version
 """
 
+import json
 import os
 import re
 import subprocess
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml  # noqa: F401  (used by skill loaders / future descriptor extensions)
@@ -67,8 +82,29 @@ MAX_ROWS = int(os.environ.get("MAX_ROWS", 1000))
 ALLOWED_GITHUB_USERS = [
     u.strip() for u in os.environ.get("ALLOWED_GITHUB_USERS", "").split(",") if u.strip()
 ]
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # write tools enabled only if present
-WRITE_TOOLS_ENABLED = bool(GITHUB_TOKEN)
+
+# --- write-tools gate: OFF BY DEFAULT ----------------------------------------
+# Write tools are a prompt-injection surface (untrusted synced data -> agent ->
+# repo write), so they register only when MCP_WRITE_TOOLS is explicitly on.
+# When on, they OPEN A PR (base=main) for human review — they never push to main.
+_TRUTHY = {"1", "true", "on", "yes"}
+WRITE_TOOLS_FLAG = os.environ.get("MCP_WRITE_TOOLS", "off").strip().lower() in _TRUTHY
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # fine-grained PAT, needed only for writes
+PR_BASE_BRANCH = os.environ.get("MCP_PR_BASE", "main")
+
+# Writes require BOTH the flag AND a token. Fail loudly on a half-configured
+# server rather than silently running read-only when the operator meant to write.
+if WRITE_TOOLS_FLAG and not GITHUB_TOKEN:
+    raise RuntimeError(
+        "MCP_WRITE_TOOLS is on but GITHUB_TOKEN is unset. The fine-grained PAT "
+        "(scopes: contents:write + pull_requests:write) is required to push the "
+        "branch and open the PR. Set GITHUB_TOKEN, or set MCP_WRITE_TOOLS=off."
+    )
+WRITE_TOOLS_ENABLED = WRITE_TOOLS_FLAG and bool(GITHUB_TOKEN)
+
+# Owner/repo for the PR API call; populated by _git_setup() when writes are on.
+_REPO_OWNER: str | None = None
+_REPO_NAME: str | None = None
 
 
 # --- inbound auth: GitHub OAuth + username allowlist -------------------------
@@ -287,7 +323,9 @@ def get_skill_context(skill: str) -> dict:
 
 
 # =============================================================================
-# WRITE TOOLS — edit skill docs, commit + push to origin/main.
+# WRITE TOOLS — edit skill docs, then OPEN A PR (base=main) for human review.
+# OFF BY DEFAULT (register only when MCP_WRITE_TOOLS is on). They NEVER push to
+# main: the edit lands on a claude-bot/edit-<ts> branch and a PR is opened.
 # See add-mcp-skill/references/mcp-github-writeback.md for the full mechanism.
 # =============================================================================
 
@@ -353,10 +391,12 @@ def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess:
 def _git_setup() -> None:
     """On startup: safe.directory, claude-bot identity, PAT-in-remote-URL.
 
-    Idempotent. Only runs when write tools are enabled (GITHUB_TOKEN present).
+    Idempotent. Only runs when write tools are enabled. A read-only server (the
+    default) never touches git config or the remote URL.
     """
+    global _REPO_OWNER, _REPO_NAME
     if not WRITE_TOOLS_ENABLED:
-        print("[mcp] write tools: disabled (read-only)")
+        print("[mcp] write tools: disabled (read-only) — git not configured")
         return
 
     # safe.directory is required: the container UID differs from the host owner
@@ -365,69 +405,150 @@ def _git_setup() -> None:
     _git("config", "user.name", "claude-bot")
     _git("config", "user.email", "claude-bot@users.noreply.github.com")
 
-    # Bake the fine-grained PAT into the origin remote URL so pushes authenticate
-    # without passing the token per-command. Rotation = edit .env + restart.
+    # Bake the fine-grained PAT into the origin remote URL so the branch push
+    # authenticates without passing the token per-command. Rotation = edit .env
+    # + restart. The same PAT is reused for the PR-open API call (_open_pr).
     remote = _git("config", "--get", "remote.origin.url").stdout.strip()
     # TODO: harden — parse owner/repo robustly; this assumes an https github URL.
     m = re.search(r"github\.com[/:]([^/]+)/(.+?)(?:\.git)?$", remote)
     if not m:
         raise RuntimeError(f"cannot_parse_origin_remote: {remote!r}")
-    owner, repo = m.group(1), m.group(2)
-    authed = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{owner}/{repo}.git"
+    _REPO_OWNER, _REPO_NAME = m.group(1), m.group(2)
+    authed = (
+        f"https://x-access-token:{GITHUB_TOKEN}@github.com/"
+        f"{_REPO_OWNER}/{_REPO_NAME}.git"
+    )
     _git("remote", "set-url", "origin", authed)
     print(f"[mcp] git_setup: safe.directory={REPO_DIR}, identity=claude-bot, "
-          f"origin=x-access-token@github.com/{owner}/{repo}")
+          f"origin=x-access-token@github.com/{_REPO_OWNER}/{_REPO_NAME}, "
+          f"mode=PR-not-push (base={PR_BASE_BRANCH})")
 
 
 def _sync_to_origin() -> None:
-    """SAFETY-critical: refuse a dirty tree, then hard-reset to origin/main.
+    """SAFETY-critical: refuse a dirty tree, return to base, hard-reset to origin.
 
-    Self-healing against non-fast-forward: origin can legitimately move ahead
-    (a parallel session or a human push). Resetting hard to origin/main before
-    editing guarantees the subsequent push fast-forwards. Discarding local
-    divergence is safe because origin/main is the single source of truth.
+    Ensures the next edit branches from the CURRENT tip of the base branch. Origin
+    can legitimately move ahead (a prior PR was merged, or a human pushed). A prior
+    write may also have left us checked out on a stale claude-bot/* branch, so we
+    return to the base branch first. Discarding local divergence is safe because
+    origin/<base> is the single source of truth and the claude-bot/* branches are
+    already pushed.
     """
     status = _git("status", "--porcelain").stdout.strip()
     if status:
-        # A dirty tree signals a prior failed write — abort rather than commit
-        # on top of an inconsistent state.
+        # A dirty tree signals a prior failed write — abort rather than build on
+        # an inconsistent state.
         raise RuntimeError("working_tree_dirty_refusing_write")
-    _git("fetch", "origin", "main")
+    # Return to the base branch (no-op if already there) so we never branch off a
+    # leftover claude-bot/* tip.
+    _git("checkout", PR_BASE_BRANCH)
+    _git("fetch", "origin", PR_BASE_BRANCH)
     local = _git("rev-parse", "HEAD").stdout.strip()
-    remote = _git("rev-parse", "origin/main").stdout.strip()
+    remote = _git("rev-parse", f"origin/{PR_BASE_BRANCH}").stdout.strip()
     if local != remote:
-        _git("reset", "--hard", "origin/main")
+        _git("reset", "--hard", f"origin/{PR_BASE_BRANCH}")
 
 
-def _commit_and_push(message: str, caller_login: str, *paths: Path) -> str:
-    """Stage exactly `paths`, commit with a co-author trailer, push to main.
+def _open_github_pr(branch: str, title: str, body: str) -> str:
+    """POST /repos/{owner}/{repo}/pulls — open a PR for `branch` against the base.
 
-    SAFETY-critical: on push failure, roll the local commit back so the working
-    tree stays coherent with origin (next _sync_to_origin starts clean).
-    Returns "pushed" or "no_changes".
+    Returns the PR html_url. Uses the same fine-grained PAT as the branch push;
+    that PAT needs `pull_requests:write` (the push needed `contents:write`).
+    # verify against installed GitHub API: payload keys and the html_url field
+    # are the documented shape, but pin to the API version your image targets.
     """
+    if not (_REPO_OWNER and _REPO_NAME):
+        raise RuntimeError("repo_owner_unknown_did_git_setup_run")
+    url = f"https://api.github.com/repos/{_REPO_OWNER}/{_REPO_NAME}/pulls"
+    payload = json.dumps({
+        "title": title,
+        "head": branch,
+        "base": PR_BASE_BRANCH,
+        "body": body,
+        "maintainer_can_modify": True,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            "User-Agent": "claude-bot-mcp",
+        },
+    )
+    # gh CLI equivalent (if `gh` is installed in the image instead of calling the API):
+    #   gh pr create --head <branch> --base <base> --title <title> --body <body>
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310 (https only)
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:  # 403 = missing pull_requests:write; 422 = dup/empty
+        detail = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(f"pr_open_failed: HTTP {exc.code}: {detail}") from exc
+    return data.get("html_url", f"(pr opened on {branch}, url unavailable)")
+
+
+def _open_pr(message: str, caller_login: str, *paths: Path) -> str:
+    """Branch, stage `paths`, commit, push the BRANCH, open a PR. NEVER push to main.
+
+    SAFETY-critical posture: write tools only PROPOSE. The edit lands on a
+    claude-bot/edit-<ts> branch and a PR is opened against the base branch for
+    human review. On any failure, the orphan branch is cleaned up and we return
+    to base so the next _sync_to_origin() starts clean.
+
+    Returns the PR html_url on success, or "no_changes" if the edit was a no-op.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    branch = f"claude-bot/edit-{ts}"
+
     # Stage only the touched files — never `git add -A`.
     rels = [str(p.relative_to(REPO_DIR)) for p in paths]
-    _git("add", "--", *rels)
 
-    # Nothing staged => the edit was a no-op.
+    # Nothing changed => the edit was a no-op. Don't create a branch or a PR.
+    _git("add", "--", *rels)
     if _git("diff", "--cached", "--quiet", check=False).returncode == 0:
         return "no_changes"
+    # Reset the index; we re-stage on the branch below to keep the flow explicit.
+    _git("reset", "--quiet", check=False)
 
+    # Create the work branch off the synced base, then commit the edit there.
+    _git("checkout", "-b", branch)
+    _git("add", "--", *rels)
     full_message = (
         f"{message}\n\n"
         f"Co-Authored-By: {caller_login} <{caller_login}@users.noreply.github.com>"
     )
     _git("commit", "-m", full_message)
 
-    push = _git("push", "origin", "HEAD:main", check=False)
+    # Push the BRANCH (HEAD:<branch>) — explicitly NOT HEAD:main.
+    push = _git("push", "origin", f"HEAD:{branch}", check=False)
     if push.returncode != 0:
-        # Roll back the local commit so the tree matches origin again. A race
-        # (parallel push landing in the window) is the common cause; the agent
-        # can simply retry — the next _sync_to_origin picks up the new tip.
-        _git("reset", "--hard", "HEAD~1")
-        raise RuntimeError(f"push_failed_rolled_back: {push.stderr.strip()}")
-    return "pushed"
+        _cleanup_branch(branch, pushed=False)
+        raise RuntimeError(f"branch_push_failed_rolled_back: {push.stderr.strip()}")
+
+    # Open the PR for human review. On failure, delete the now-orphaned remote branch.
+    body = (
+        f"Proposed by `claude-bot` on behalf of @{caller_login} via an MCP write tool.\n\n"
+        f"{message}\n\n"
+        f"Edits skill docs only. Review the diff before merging — this server "
+        f"exposes externally-ingested data to an AI agent, so treat the change "
+        f"as a *proposal*, not a vetted edit."
+    )
+    try:
+        return _open_github_pr(branch, title=message, body=body)
+    except Exception:
+        _cleanup_branch(branch, pushed=True)
+        raise
+
+
+def _cleanup_branch(branch: str, pushed: bool) -> None:
+    """Best-effort rollback: return to base, delete the local (and pushed) branch."""
+    _git("checkout", PR_BASE_BRANCH, check=False)
+    _git("branch", "-D", branch, check=False)
+    if pushed:
+        _git("push", "origin", "--delete", branch, check=False)
 
 
 # --- markdown edit helpers ---------------------------------------------------
@@ -469,7 +590,7 @@ def _replace_substring(path: Path, old: str, new: str) -> None:
     """Replace the FIRST exact occurrence of `old` with `new`. No-op if absent."""
     content = path.read_text(encoding="utf-8")
     if old not in content:
-        return  # caller surfaces "no_changes" via _commit_and_push
+        return  # no-op leaves the tree clean; _open_pr then returns "no_changes"
     path.write_text(content.replace(old, new, 1), encoding="utf-8")
 
 
@@ -479,21 +600,27 @@ if WRITE_TOOLS_ENABLED:
 
     @mcp.tool
     def append_to_section(skill: str, file_key: str, section: str, text: str) -> str:
-        """Append text under an existing markdown heading in a skill doc, then commit + push."""
+        """Append text under a markdown heading in a skill doc, then OPEN A PR.
+
+        Returns the PR URL (for human review) or "no_changes". Never pushes to main.
+        """
         login = _authorize_request()
         path = _resolve_skill_file(skill, file_key)  # path-traversal guarded
-        _sync_to_origin()                             # fetch + hard-reset to origin/main
+        _sync_to_origin()                             # checkout base + reset to origin
         _append_under_heading(path, section, text)
-        return _commit_and_push(f"docs({skill}): append to {section}", login, path)
+        return _open_pr(f"docs({skill}): append to {section}", login, path)
 
     @mcp.tool
     def replace_in_file(skill: str, file_key: str, old: str, new: str) -> str:
-        """Replace an exact substring in a skill doc, then commit + push."""
+        """Replace an exact substring in a skill doc, then OPEN A PR.
+
+        Returns the PR URL (for human review) or "no_changes". Never pushes to main.
+        """
         login = _authorize_request()
         path = _resolve_skill_file(skill, file_key)
         _sync_to_origin()
         _replace_substring(path, old, new)
-        return _commit_and_push(f"docs({skill}): replace text", login, path)
+        return _open_pr(f"docs({skill}): replace text", login, path)
 
 
 # --- entrypoint --------------------------------------------------------------
@@ -502,6 +629,11 @@ if __name__ == "__main__":
     _git_setup()  # safe.directory, identity, PAT remote URL (no-op if read-only)
     print(f"[mcp] connected to BigQuery project {GCP_PROJECT} ({BQ_LOCATION})")
     print(f"[mcp] allowlist: {ALLOWED_GITHUB_USERS or '[any authed GitHub user]'}")
-    print(f"[mcp] write tools: {'enabled' if WRITE_TOOLS_ENABLED else 'disabled (read-only)'}")
+    if WRITE_TOOLS_ENABLED:
+        print(f"[mcp] write tools: ENABLED — PR-not-push (base={PR_BASE_BRANCH}); "
+              f"edits open a PR for human review, never push to main")
+    else:
+        print("[mcp] write tools: disabled (read-only) — set MCP_WRITE_TOOLS=on "
+              "+ GITHUB_TOKEN to enable")
     # verify against installed FastMCP version: transport name + kwargs.
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8000)

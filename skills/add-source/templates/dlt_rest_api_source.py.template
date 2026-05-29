@@ -1,0 +1,85 @@
+# load.py — dlt REST API pipeline for <SOURCE_NAME>
+#
+# Copy into the client repo, replace every <PLACEHOLDER>, then:
+#   pip install "dlt[bigquery]"
+#   python load.py        # writes raw_<SOURCE_NAME>, prints load_info
+#   python reconcile.py   # MANDATORY — proves the load is complete, not just that it ran
+#
+# Secrets go in .dlt/secrets.toml or env vars (SOURCES__<SOURCE>__... / DESTINATION__BIGQUERY__CREDENTIALS).
+# NEVER inline a secret here — this file is committed to Git.
+# Verify config keys against the installed dlt version: `pip show dlt`.
+
+import dlt
+from dlt.sources.rest_api import rest_api_source
+
+
+def make_source():
+    return rest_api_source(
+        {
+            "client": {
+                "base_url": "<https://api.SOURCE.com/v1/>",
+                # --- auth: pick ONE shape (verify keys against installed dlt) ---
+                # bearer:
+                "auth": {
+                    "type": "bearer",
+                    "token": dlt.secrets["sources.<SOURCE_NAME>.api_token"],
+                },
+                # api_key:
+                # "auth": {
+                #     "type": "api_key",
+                #     "api_key": dlt.secrets["sources.<SOURCE_NAME>.api_key"],
+                #     "name": "<X-Api-Key>",
+                #     "location": "header",   # or "query"
+                # },
+                # oauth2 (client credentials):
+                # "auth": {
+                #     "type": "oauth2",
+                #     "client_id": dlt.secrets["sources.<SOURCE_NAME>.client_id"],
+                #     "client_secret": dlt.secrets["sources.<SOURCE_NAME>.client_secret"],
+                #     "token_url": "<https://api.SOURCE.com/oauth/token>",
+                #     "scopes": ["<read>"],
+                # },
+                "paginator": "auto",  # pin an explicit paginator once you see the response shape
+            },
+            "resources": [
+                {
+                    "name": "<RESOURCE_NAME>",          # becomes a table in raw_<SOURCE_NAME>
+                    "endpoint": {
+                        "path": "<resource_path>",
+                        "params": {"<per_page>": 100},
+                        # paginator — match how THIS API signals the next page:
+                        "paginator": {
+                            "type": "page_number",      # or json_link / header_link / offset / cursor
+                            "base_page": 1,
+                            "total_path": "<meta.total_pages>",
+                        },
+                    },
+                    "primary_key": "<id>",              # REQUIRED for write_disposition "merge"
+                    # Start at "replace" (deterministic, no cursor bugs). Move to "merge" + incremental
+                    # ONLY once the cursor is proven AND reconcile.py is watching.
+                    "write_disposition": "replace",     # "replace" | "append" | "merge"
+                    # "incremental": {
+                    #     "cursor_path": "<updated_at>",          # server-set, MONOTONIC column only
+                    #     "initial_value": "<2024-01-01T00:00:00Z>",
+                    # },
+                },
+                # ... add one entry per stream you need ...
+            ],
+        }
+    )
+
+
+def main():
+    pipeline = dlt.pipeline(
+        pipeline_name="<SOURCE_NAME>",
+        destination="bigquery",            # one line to swap: duckdb / postgres / snowflake
+        dataset_name="raw_<SOURCE_NAME>",  # one dataset per source; tables live inside
+    )
+    load_info = pipeline.run(make_source())
+    print(load_info)
+    # load_info proves the load RAN. It does NOT prove the data is COMPLETE.
+    # A wrong paginator/cursor leaves SILENT DATA GAPS. Run reconcile.py next — it is mandatory.
+
+
+if __name__ == "__main__":
+    main()

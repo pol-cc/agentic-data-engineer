@@ -2,6 +2,8 @@
 
 End state: Traefik running on the VPS as a Docker container, serving TLS on port 443 for the MCP endpoint, auto-renewing certificates via Let's Encrypt. Total time: ~20 minutes (5 active, 15 waiting for ACME).
 
+> **Skip this whole step if the client declined the MCP.** Phase 3 (and therefore the public TLS endpoint, the domain, and Traefik) is opt-in. A Phase-2 deployment exposes no public port and needs no reverse proxy. Only set up Traefik once the client has opted into the MCP serving layer — see [`phase-3-agentic-layer.md`](phase-3-agentic-layer.md) for the opt-in gate.
+
 ## Why Traefik (not nginx, not Caddy)
 
 Traefik is chosen for three reasons:

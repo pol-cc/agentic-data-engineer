@@ -1,11 +1,11 @@
 ---
 name: verify-pipeline
-description: "Run a full health check across the MDS pipeline: Airbyte sync status, BigQuery freshness per source, dbt model freshness, MCP server health, and raw-vs-staging row count integrity. Invoke when the user wants to confirm the pipeline is healthy or asks 'is everything working?'"
+description: "Run a full health check across the MDS pipeline: ingestion (dlt/Airbyte) load status, BigQuery freshness per source, ingest reconciliation (source-vs-destination row counts), dbt model freshness, MCP server health, and raw-vs-staging row count integrity. Invoke when the user wants to confirm the pipeline is healthy or asks 'is everything working?'"
 ---
 
 # verify-pipeline
 
-> **Status**: v0.5.0 — references written; read-only health check operational.
+> **Status**: v0.7.0 — references written; read-only health check operational. **Ingest reconciliation is now a first-class layer** (source-vs-destination row counts, dlt `_dlt_loads` freshness, sequence/gap checks) — mandatory after every dlt load to catch the silent data gap a mis-set incremental cursor leaves without crashing.
 
 ## What this skill does
 
@@ -25,11 +25,14 @@ fi
 | Layer | Check | Pass criterion |
 |---|---|---|
 | **Tailscale** | `tailscale status` on the VPS via SSH | VPS reachable, all nodes online |
-| **Airbyte** | `GET /api/public/v1/jobs?status=succeeded` for each connection | Last successful sync within `freshness_thresholds.green_hours` (default 26h) |
+| **Ingestion** (dlt/Airbyte) | dlt `_dlt_loads` last-load status + age per source (or Airbyte `GET /jobs` when `stack.ingest == "airbyte"`) | Latest load completed within `freshness_thresholds.green_hours` (default 26h) |
 | **BigQuery raw** | `__TABLES__` modification time per raw dataset | Updated within green_hours |
+| **Ingest reconciliation** | Source-vs-destination row count per source; dlt `_dlt_loads` status; sequence/gap check on monotonic keys | Destination matches source within `reconciliation_tolerance` (default 0); no sequence gaps; latest `_dlt_loads.status = 0` |
 | **BigQuery integrity** | Row count `raw.<table>` vs `staging.stg_<table>` | Difference within 0.5% (or configured threshold) |
 | **dbt** | `target/run_results.json` from last cron run via SSH | All models `success`, run completed within green_hours |
 | **MCP** (if configured) | `GET /health` on the MCP server endpoint | Returns 200 |
+
+**Reconciliation is the ingest-layer check dbt tests don't cover.** dbt tests validate the *transform* (raw → staging → marts); reconciliation validates the *ingest* (source → raw). It is mandatory after every dlt load because dlt's failure mode is silent — a mis-set incremental cursor or broken paginator leaves a data gap without crashing, so freshness looks green while rows are missing. Only counting source against destination catches it. See [`references/health-checks.md`](references/health-checks.md) section 4.
 
 ## Output
 

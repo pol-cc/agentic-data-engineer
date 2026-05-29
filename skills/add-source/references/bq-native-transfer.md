@@ -1,8 +1,8 @@
 # BigQuery native transfers for Google services
 
-End state: a Google service (GA4, Google Ads, Search Console) lands daily in BigQuery **without** an Airbyte connector. These use Google's first-party exports / BigQuery Data Transfer Service (DTS) — managed, scheduled, and free, run by Google rather than by Airbyte on the VPS.
+End state: a Google service (GA4, Google Ads, Search Console) lands daily in BigQuery **without dlt and without an Airbyte connector**. These use Google's first-party exports / BigQuery Data Transfer Service (DTS) — managed, scheduled, and free, run by Google rather than on the VPS.
 
-> **The architectural rule (repeat after the catalog):** Google services use BigQuery's native transfers, NOT Airbyte. This saves an Airbyte connector slot and is more reliable than scraping the same data through a third-party API connector. The author's live deployment runs Google Ads + GA4 this way.
+> **The architectural rule:** Google services use BigQuery's native transfers — **never dlt, never Airbyte**. This is more reliable than scraping the same data through any third-party connector, it's free, and Google runs it. This is the dedicated lane for the three Google sources; everything else defaults to dlt ([`dlt-rest-api-source.md`](dlt-rest-api-source.md)). The author's live deployment runs Google Ads + GA4 this way.
 
 ## Preflight
 

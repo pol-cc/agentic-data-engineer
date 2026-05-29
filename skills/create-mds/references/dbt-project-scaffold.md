@@ -122,11 +122,12 @@ sources:
   - name: factorial
     database: <project>
     schema: raw_factorial
-    description: "Factorial HR data, loaded by Airbyte daily at 07:30 UTC"
+    description: "Factorial HR data, loaded by the dlt pipeline daily"
     freshness:
       warn_after: {count: 26, period: hour}
       error_after: {count: 50, period: hour}
-    loaded_at_field: _airbyte_extracted_at    # Airbyte's standard timestamp column
+    loaded_at_field: _dlt_load_id    # dlt stamps each row with its load id; join to _dlt_loads for the timestamp
+    # (If you ran the Airbyte alternative instead, the column is _airbyte_extracted_at.)
     tables:
       - name: employees
       - name: contracts

@@ -104,7 +104,7 @@ renamed as (
         cast(terminated_on as date) as terminated_date,
 
         -- Metadata
-        _airbyte_extracted_at       as loaded_at
+        _dlt_load_id                as loaded_at   -- dlt default; Airbyte legacy: _airbyte_extracted_at
     from source
     where id is not null     -- drop garbage rows from raw
 )
@@ -117,7 +117,7 @@ Key points:
 - One CTE (`source`) just pulls the raw, no logic.
 - One CTE (`renamed`) does all transformations.
 - Casts are explicit even when types look right — protects against schema drift.
-- The `_airbyte_extracted_at` (or equivalent) becomes `loaded_at` — downstream models use this for freshness.
+- The load-timestamp column (dlt's `_dlt_load_id` / a loaded-at field; Airbyte legacy: `_airbyte_extracted_at`) becomes `loaded_at` — downstream models use this for freshness.
 - The final `select * from renamed` is the only `*` allowed — it's selecting from a CTE you just defined, not from the warehouse.
 
 ## Canonical mart model shape

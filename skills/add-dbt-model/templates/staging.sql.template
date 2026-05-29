@@ -19,8 +19,18 @@
 --   - lowercase keywords, snake_case columns, trailing commas, one col per line
 --   - primary key renamed to <entity>_id (never bare `id`)
 --   - explicit casts even when the type looks right (guards against schema drift)
---   - the Airbyte extract timestamp becomes `loaded_at` for downstream freshness
+--   - the ingest load timestamp becomes `loaded_at` for downstream freshness
 --   - `select * from renamed` is the ONLY `*` allowed (selecting a CTE, not raw)
+--
+-- Load-timestamp column is ingestion-tool agnostic. Pick whichever your loader
+-- writes onto every raw row, and alias it to `loaded_at`:
+--   - dlt (current default):  _dlt_load_id  (join to the _dlt_loads table for the
+--                             wall-clock time) OR a loader-provided `inserted_at` /
+--                             `_dlt_loaded_at`-style field if present on the table
+--   - Airbyte (legacy):       _airbyte_extracted_at
+-- Whatever you choose, the alias downstream is always `loaded_at` so freshness
+-- checks and incremental watermarks (see references/incremental-and-cost.md) work
+-- the same regardless of ingestion tool.
 -- =============================================================================
 
 {{ config(materialized='view') }}
@@ -46,8 +56,9 @@ renamed as (
         -- cast(raw_ts_col as timestamp) as <event>_at,
         -- cast(raw_bool_col as bool)   as is_<predicate>,
 
-        -- Metadata (used by downstream freshness checks)
-        _airbyte_extracted_at           as loaded_at
+        -- Metadata (used by downstream freshness checks + incremental watermarks)
+        -- dlt default: _dlt_load_id (or a loaded_at field); Airbyte: _airbyte_extracted_at
+        _dlt_load_id                    as loaded_at
 
     from source
     where <PK> is not null     -- drop garbage rows that lack a primary key

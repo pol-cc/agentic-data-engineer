@@ -5,7 +5,7 @@ description: "Add a new dbt model (staging, intermediate, or marts) to an existi
 
 # add-dbt-model
 
-> **Status**: v0.5.0 — conventions + templates complete; conventions and decision tree references written and the copy-paste templates (staging, marts, schema, sources) are now included. The step-by-step playbook for invoking from an existing MDS is still skeletal.
+> **Status**: v0.7.0 — conventions + templates complete, with **incremental-by-default for fact/event marts** on BigQuery (cost control). Conventions and decision-tree references written; copy-paste templates (staging, marts dimension, marts incremental fact, schema, sources) included plus the `incremental-and-cost.md` reference. The step-by-step playbook for invoking from an existing MDS is still skeletal.
 
 ## What this skill does
 
@@ -41,6 +41,8 @@ Ask the user what they want to compute. Then decide:
 
 See `references/staging-vs-marts.md` and `references/dbt-naming-conventions.md`.
 
+**Materialization is a cost decision on BigQuery (bills by bytes scanned).** Default by layer: staging = `view`; dimensions / small reports = `table`; **fact/event marts = `incremental`** (partitioned + clustered, `insert_overwrite`). A full-refresh `table` on a growing fact re-scans all history every run — the surprise-bill risk this default prevents. See `references/incremental-and-cost.md`.
+
 **Phase B — Write the model**
 
 1. SSH to the VPS, locate the dbt project.
@@ -64,9 +66,11 @@ See `references/staging-vs-marts.md` and `references/dbt-naming-conventions.md`.
 Conventions (complete):
 - [`references/dbt-naming-conventions.md`](references/dbt-naming-conventions.md) — file/model/column naming, SQL style, tests pattern, canonical model shapes
 - [`references/staging-vs-marts.md`](references/staging-vs-marts.md) — decision tree for which layer a model belongs in
+- [`references/incremental-and-cost.md`](references/incremental-and-cost.md) — BigQuery cost control: when to go incremental, partition/cluster choice, `maximum_bytes_billed`, the GCP budget alert backstop, and the light cross-db convention (prefer dbt macros, flatten structs early — no `adapter.dispatch` framework)
 
 Templates (complete) — copy into the client's dbt project and fill the `<PLACEHOLDER>` markers:
-- [`templates/staging.sql.template`](templates/staging.sql.template) — canonical staging model: `view` materialization, `source` + `renamed` CTEs, explicit casts, `_airbyte_extracted_at as loaded_at`, `where <pk> is not null`
-- [`templates/marts.sql.template`](templates/marts.sql.template) — canonical mart: `table` materialization, one CTE per `ref()` input, a `joined` CTE, explicit final select
-- [`templates/schema.yml.template`](templates/schema.yml.template) — model docs + tests (`not_null`/`unique` PK, `not_null` FK, `accepted_values` enum, optional monetary check)
-- [`templates/sources.yml.template`](templates/sources.yml.template) — raw `sources:` declaration (database `<project>`, schema `raw_<source>`, freshness warn 26h / error 50h, `loaded_at_field: _airbyte_extracted_at`)
+- [`templates/staging.sql.template`](templates/staging.sql.template) — canonical staging model: `view` materialization, `source` + `renamed` CTEs, explicit casts, ingest-tool-agnostic load timestamp (`_dlt_load_id` / `_airbyte_extracted_at` → `loaded_at`), `where <pk> is not null`
+- [`templates/marts.sql.template`](templates/marts.sql.template) — DIMENSION / small-report mart: `table` materialization, one CTE per `ref()` input, a `joined` CTE, explicit final select. Heavily commented on when to use `table` (dim) vs `incremental` (fact)
+- [`templates/marts_incremental.sql.template`](templates/marts_incremental.sql.template) — FACT / event mart (BigQuery default): `incremental` + `insert_overwrite` + `partition_by` + `cluster_by` + `on_schema_change`, with the `is_incremental()` look-back guard
+- [`templates/schema.yml.template`](templates/schema.yml.template) — model docs + tests (`not_null`/`unique` PK, `not_null` FK, `accepted_values` enum, optional monetary check) plus optional incremental-fact guards (partition `not_null`, recency, row-count)
+- [`templates/sources.yml.template`](templates/sources.yml.template) — raw `sources:` declaration (database `<project>`, schema `raw_<source>`, freshness warn 26h / error 50h, `loaded_at_field`)

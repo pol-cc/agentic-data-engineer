@@ -4,7 +4,7 @@ End state: a fresh Ubuntu 24.04 VPS, hardened, reachable via SSH, ready to recei
 
 ## Why Hostinger KVM 2
 
-See [`shared-references/stack-rationale.md`](../../../shared-references/stack-rationale.md#hostinger-vps--the-compute-host). The KVM 2 plan gives 2 vCPU, 8 GB RAM, 100 GB NVMe for ~$5-8/month. Adequate for Airbyte + dbt + MCP at PYME data volumes. Hostinger's API allows headless provisioning.
+See [`shared-references/stack-rationale.md`](../../../shared-references/stack-rationale.md#hostinger-vps--the-compute-host). The KVM 2 plan gives 2 vCPU, 8 GB RAM, 100 GB NVMe for ~$5-8/month — comfortable for dlt + dbt + (optional) MCP at PYME data volumes. With the dlt default (no Airbyte Kubernetes-in-Docker), even a smaller box can work; KVM 2 stays the safe recommendation and leaves headroom for the MCP server. The VPS is **disposable** — its durable state lives in BigQuery (`_dlt_*` cursors) and the client repo, so a rebuild loses nothing. Hostinger's API allows headless provisioning.
 
 For Hetzner Cloud or DigitalOcean equivalents, swap the API calls accordingly — the rest of this playbook is identical.
 

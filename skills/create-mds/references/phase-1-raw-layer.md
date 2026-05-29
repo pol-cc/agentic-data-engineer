@@ -1,17 +1,19 @@
 # Phase 1 — Raw Layer Playbook
 
-This is the orchestrator for Phase 1 of `create-mds`. It produces a working MDS up to the **raw layer**: data from at least one source landing in BigQuery as `raw_<source>` datasets, synced daily. No dbt, no MCP yet — those are Phase 2 and 3.
+This is the orchestrator for Phase 1 of `create-mds`. It produces a working MDS up to the **raw layer**: data from at least one source landing in BigQuery as `raw_<source>` datasets via **dlt**, loaded daily. No dbt, no MCP yet — those are Phase 2 and 3.
+
+The default ingestion engine is **dlt** ([data load tool](https://dlthub.com)) — a Python library the agent drives directly with `python load.py`, not a platform. Airbyte OSS remains documented as an [alternative ingestion path](airbyte-install.md) for teams already committed to it, but it is **not the default**. Why dlt: a short feedback loop (write a script, run it, read the row count or stack trace immediately), and warehouse-resident state — dlt persists its incremental cursors to the *destination* (`_dlt_*` tables in BigQuery), so a lost VPS is rebuilt from the repo with cursors intact. **Cattle, not pet.**
 
 End state of Phase 1:
 
 - A Hostinger VPS provisioned and hardened
 - A Tailscale tailnet with at least the VPS joined; optionally on-prem source hosts
-- Airbyte OSS installed on the VPS, reachable only via Tailscale, API accessible
-- A BigQuery project with a service account configured
-- At least one Airbyte connection live: source → `raw_<source>` dataset
-- A client GitHub repo committed with `.agentic-data-engineer.json` marker, config exports, and a README
+- A BigQuery project with a write service account, a **budget alert**, and the BigQuery API enabled
+- dlt installed in a venv on the VPS, reachable only via Tailscale
+- At least one dlt pipeline live and **reconciled**: source → `raw_<source>` dataset, with state in BigQuery's `_dlt_*` tables
+- A client GitHub repo committed with `.agentic-data-engineer.json` marker, the dlt pipeline + reconcile scripts, a per-client `CLAUDE.md`, and a README
 
-Estimated wall-clock time: **2-4 hours** for a first deployment, most of which is waiting for VPS provisioning and Airbyte initial install. Active human attention needed: ~30 minutes (OAuth prompts and credential capture).
+Estimated wall-clock time: **1.5-3 hours** for a first deployment, most of which is waiting for VPS provisioning. Active human attention needed: ~30 minutes (OAuth prompts and credential capture). Dropping Airbyte's Kubernetes-in-Docker install removes the slowest, heaviest step of the old playbook.
 
 ---
 
@@ -107,46 +109,50 @@ Summary:
 2. The agent creates a new GCP project named `<client>-mds-prod` (or whatever the user prefers).
 3. Enable billing on the project (requires manual click if it's the user's first project — OAuth ceremony).
 4. Enable the BigQuery API.
-5. Create a service account `airbyte-writer@<project>.iam.gserviceaccount.com` with roles:
-   - `roles/bigquery.dataEditor` (write to raw datasets)
-   - `roles/bigquery.jobUser` (run queries for sync overhead)
-6. Generate and download the service account JSON key.
-7. **Securely transfer the JSON to the VPS** via SSH (never to the public repo).
+5. **Create a budget alert** (`gcloud billing budgets create`) — a monthly amount with threshold alerts so a runaway query bill is caught early. BigQuery's bytes-scanned model means one bad query can cost real money; the alert is the safety net.
+6. Create a **write** service account `dlt-writer@<project>.iam.gserviceaccount.com` with roles:
+   - `roles/bigquery.dataEditor` (write to raw datasets, including dlt's `_dlt_*` state tables)
+   - `roles/bigquery.jobUser` (run load/query jobs)
+   - (A separate **read-only** SA for the MCP server is created in Phase 3 — see the read/write split note in [`bigquery-project-setup.md`](bigquery-project-setup.md).)
+7. Generate and download the service account JSON key.
+8. **Securely transfer the JSON to the VPS** via SSH (never to the public repo) — dlt reads it via `GOOGLE_APPLICATION_CREDENTIALS`.
 
-Verification: `bq ls --project_id=<client>-mds-prod` works from the user's laptop.
-
----
-
-## Step 4 — Install Airbyte OSS
-
-Detailed instructions: [`airbyte-install.md`](airbyte-install.md).
-
-Summary:
-
-1. On the VPS (over Tailscale SSH), install Docker.
-2. Install `abctl` (Airbyte's CLI installer).
-3. Run `abctl local install` — this brings up Airbyte as Kind-based Kubernetes-in-Docker. Takes ~10-15 min.
-4. Set the admin credentials with `abctl local credentials`.
-5. Enable the OAuth2 API by creating an application; capture `client_id` and `client_secret`.
-6. Smoke-test the API: `curl /api/public/v1/applications/token` returns a JWT.
-
-Verification: `abctl local status` shows all components running. The API responds at `http://localhost:8000/api/public/v1/` from inside the VPS (port not exposed publicly — Tailscale + SSH tunnel for local browser if needed).
+Verification: `bq ls --project_id=<client>-mds-prod` works from the user's laptop; `gcloud billing budgets list --billing-account=<id>` shows the new budget.
 
 ---
 
-## Step 5 — Wire the first source
+## Step 4 — Install dlt on the VPS
 
-Detailed instructions: [`../../add-source/SKILL.md`](../../add-source/SKILL.md). Phase 1 invokes the `add-source` skill internally with the first source the user named in Step 0.
+Detailed instructions: [`dlt-on-vps-install.md`](dlt-on-vps-install.md).
 
 Summary:
 
-1. Look up the source in Airbyte's connector catalog.
-2. Get user credentials for the source (OAuth ceremony for SaaS sources; database creds for on-prem).
-3. Configure Airbyte source via API.
-4. Configure BigQuery destination via API, pointing at `raw_<source>` dataset in the new GCP project (the dataset will be created on first sync).
-5. Configure the connection with sync mode `Full Refresh Overwrite` (start safe; can tune later) and schedule daily at a time chosen by the user (default 07:30 UTC).
-6. Trigger an initial sync. Watch it complete.
-7. Verify the data landed: `bq query "SELECT COUNT(*) FROM <project>.raw_<source>.<a_table>"`.
+1. On the VPS (over Tailscale SSH), confirm Python 3.10+ and `python3-venv`.
+2. Create a venv at `/home/deploy/dlt-env/`.
+3. `pip install "dlt[bigquery]"` (pin a known-good minor; verify the range against dlt's docs at execution time).
+4. Verify `dlt --version` and `python -c "import dlt"`.
+5. Lay out the pipeline dir `/home/deploy/dlt/<client>-mds/` with a `.dlt/` config dir. Wire credentials via the on-box service-account key (`GOOGLE_APPLICATION_CREDENTIALS`) — reuses the credential from Step 3 and keeps the private key out of TOML.
+
+Verification: `dlt --version` reports a version; `.dlt/` exists in the pipeline dir; the SA key is readable by `deploy`.
+
+No Docker, no Kubernetes, no control plane — dlt is a library. This step is minutes, not the ~15 min Airbyte's Kind cluster took.
+
+---
+
+## Step 5 — Write the first dlt pipeline and reconcile
+
+Detailed instructions: [`../../add-source/SKILL.md`](../../add-source/SKILL.md). Phase 1 invokes the `add-source` skill internally with the first source the user named in Step 0; that skill owns the dlt source detail (REST API config, paginators, incremental, on-prem `sql_database`). Do not duplicate it here.
+
+Summary:
+
+1. Pick the lane for the first source (per `add-source`): a **dlt pipeline** for a SaaS API or cloud DB (default), a **BigQuery native transfer** for a Google service (GA4 / Google Ads), or a **dlt `sql_database`** source for an on-prem DB over the tailnet.
+2. Get user credentials for the source (OAuth ceremony for SaaS; read-only DB creds for on-prem). Put them in `.dlt/secrets.toml` or env vars — **never committed**.
+3. Write `load.py` from the `add-source` template: `dlt.pipeline(destination="bigquery", dataset_name="raw_<source>").run(source)`. Start with `write_disposition="replace"` (safe), tune to `merge`/incremental once a cursor is chosen.
+4. Run it: `python load.py`. Read `load_info`; fix the stack trace; re-run until rows land in `raw_<source>`. dlt creates the dataset and its `_dlt_loads` / `_dlt_pipeline_state` tables automatically.
+5. **Reconcile (mandatory, not optional).** dlt's failure mode is *silent data gaps*, not crashes — a mis-set cursor or wrong paginator drops rows without erroring. Run the reconciliation check (`reconcile.py` from the `add-source` template): source row count vs `SELECT COUNT(*)` in `raw_<source>`, freshness, and sequence-gap. **The source is not done until reconciliation passes.**
+6. Confirm the load succeeded in state: `bq query "SELECT * FROM <project>.raw_<source>._dlt_loads ORDER BY inserted_at DESC LIMIT 5"` shows status `succeeded`.
+
+> **Why reconciliation is non-negotiable.** Without it, dlt is *more* dangerous than Airbyte: a pipeline that "ran successfully" can be quietly dropping half the rows, and nobody notices until a dashboard is wrong. The reconcile check is what makes dlt safe. It runs again on every scheduled run in Phase 2's linear pipeline (see [`orchestration-systemd.md`](orchestration-systemd.md)).
 
 ---
 
@@ -157,10 +163,12 @@ Summary:
    - `README.md` — auto-generated brief describing the deployment
    - `.agentic-data-engineer.json` — the marker file with Phase 1 state
    - `CLAUDE.md` — written from [`../templates/client-CLAUDE.md.template`](../templates/client-CLAUDE.md.template), with the `<...>` placeholders filled in for this deployment. This re-activates the data-engineer posture in any future Claude Code session opened in this folder (strong posture, not a cage — see the template).
-   - `airbyte-configs/` — exported connection config(s) as YAML
+   - `pipeline/` — the dlt `load.py`, `reconcile.py`, and `.dlt/config.toml` (NOT `.dlt/secrets.toml`)
    - `infra/` — VPS hostname, Tailscale notes, BigQuery project ID (no secrets)
-   - `.gitignore` — exclude `secrets/`, `*.json` credentials, etc.
+   - `.gitignore` — exclude `secrets/`, `*.json` credentials, **`.dlt/secrets.toml`**, etc.
 3. Push to GitHub.
+
+> The dlt pipeline scripts are the reproducible heart of the raw layer (principle 4). Together with the warehouse-resident `_dlt_*` state, a fresh VPS checked out from this repo reloads from the last cursor with no gap — the cattle-not-pet property. Secrets stay out of Git: the SA key lives in `/home/deploy/secrets/` on the box and the agent's secrets folder on the laptop.
 
 > **Why a per-client `CLAUDE.md`?** When the skillpack is installed as a Claude Code plugin, its skills are available globally and picked by description — but nothing pins a session to *this* client. The per-client `CLAUDE.md` lives in the client repo and loads automatically when a session opens there, so the next time you (or anyone) work in this folder, Claude resumes as this deployment's data engineer with the marker state in hand. The skillpack provides the knowledge; this file provides the local, persistent role.
 
@@ -168,16 +176,18 @@ The marker file looks like this after Phase 1:
 
 ```jsonc
 {
-  "skill_version": "0.1.0",
+  "skill_version": "0.7.0",
   "created_at": "<today>",
   "stack": {
     "sources": ["<first_source>"],
+    "ingestion": "dlt",
     "warehouse": "bigquery",
     "transform": null,
     "orchestration": null,
     "mcp": false
   },
   "decisions": {
+    "ingestion": "dlt",
     "warehouse": "bigquery",
     "network_layer": "tailscale",
     "vps": "provisioned_fresh",
@@ -187,6 +197,10 @@ The marker file looks like this after Phase 1:
     "tailnet": "<user-tailnet>",
     "bq_project_id": "<acme>-mds-prod",
     "bq_location": "EU",
+    "bq_budget_alert": true,
+    "bq_write_sa": "dlt-writer@<acme>-mds-prod.iam.gserviceaccount.com",
+    "dlt_venv_path": "/home/deploy/dlt-env",
+    "dlt_pipeline_dir": "/home/deploy/dlt/<acme>-mds",
     "github_repo": "<user>/<acme>-mds"
   },
   "history": [
@@ -202,11 +216,11 @@ The marker file looks like this after Phase 1:
 Report to the user:
 
 - VPS hostname (tailnet name)
-- GCP project ID
+- GCP project ID + that a budget alert is in place
 - GitHub client repo URL
-- First sync timestamp + row counts
-- "Run `verify-pipeline` tomorrow morning after the scheduled sync to confirm continuity."
-- "When you want Phase 2 (dbt), invoke me with 'set up dbt for this MDS'. When you want Phase 3 (MCP), invoke me with 'set up the MCP server'."
+- First dlt load timestamp + row counts, and that reconciliation passed
+- "Run `verify-pipeline` after the next scheduled run to confirm continuity (scheduling lands in Phase 2 — until then the load is manual)."
+- "When you want Phase 2 (dbt + the systemd-timed pipeline), invoke me with 'set up dbt for this MDS'. When you want Phase 3 (MCP — opt-in but recommended), invoke me with 'set up the MCP server'."
 
 Phase 1 is complete.
 
@@ -217,7 +231,7 @@ Phase 1 is complete.
 If Phase 1 is interrupted (network failure, user cancels mid-way), re-invoking `create-mds` checks the marker:
 
 - **No marker** → fresh start. Begins at Step 0.
-- **Marker exists with Phase 1 partial** → resumes from the first unfinished step. Each step has its own preflight check (does the VPS exist? is Tailscale joined? is BQ project created? is Airbyte installed?).
+- **Marker exists with Phase 1 partial** → resumes from the first unfinished step. Each step has its own preflight check (does the VPS exist? is Tailscale joined? is BQ project created? is dlt installed? did the first pipeline load + reconcile?).
 - **Marker exists with Phase 1 complete** → refuses to run. User should invoke `add-source` or another evolution skill.
 
 Each sub-reference (`vps-hostinger-bootstrap.md`, etc.) defines its own preflight.

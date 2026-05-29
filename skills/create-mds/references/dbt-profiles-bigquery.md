@@ -22,7 +22,7 @@ dbt looks for `profiles.yml` in this order:
 ssh deploy@<client>-mds
 
 # Confirm the service account key was copied during Phase 1
-ls -la /home/deploy/secrets/bq-airbyte.json || {
+ls -la /home/deploy/secrets/bq-dlt.json || {
   echo "[abort] BigQuery service account key missing — re-run bigquery-project-setup.md Step H"
   exit 1
 }
@@ -33,14 +33,16 @@ ls -la /home/deploy/secrets/bq-airbyte.json || {
 
 ## Step A — Decide whether to share or split service accounts
 
-Phase 1 created **one** service account (`airbyte-writer@...`) with `bigquery.dataEditor` + `bigquery.jobUser`. Two options:
+Phase 1 created **one write** service account (`dlt-writer@...`) with `bigquery.dataEditor` + `bigquery.jobUser`. Two options:
 
 | Option | Pros | Cons |
 |---|---|---|
-| **Reuse the same service account for dbt** | One key file to manage; same role set is enough | Slightly larger blast radius if the key leaks |
+| **Reuse `dlt-writer` for dbt** | One key file to manage; same role set is enough | Slightly larger blast radius if the key leaks |
 | **Create a separate `dbt-runner` service account** | Cleaner separation, can scope roles tighter | More IAM bindings to track |
 
-**Default for v0.1: reuse.** Reasoning: PYME deployments don't justify the extra IAM management overhead. The Airbyte and dbt accounts both need write access to `<project>` — the work is similar. Revisit if a security audit demands separation.
+**Default: reuse `dlt-writer`.** Reasoning: PYME deployments don't justify the extra IAM management overhead, and dlt + dbt both run inside the same linear pipeline on the same box — both need write access to `<project>`, so the work is identical. Revisit if a security audit demands separation.
+
+> This is the **write** account, shared by the two write-side tools. It is unrelated to the MCP server's **read-only** account (Phase 3) — agents never query through a write key. See the read/write split in [`bigquery-project-setup.md`](bigquery-project-setup.md).
 
 ## Step B — Create `~/.dbt/profiles.yml`
 
@@ -55,7 +57,7 @@ cat > /home/deploy/.dbt/profiles.yml <<'EOF'
     prod:
       type: bigquery
       method: service-account
-      keyfile: /home/deploy/secrets/bq-airbyte.json
+      keyfile: /home/deploy/secrets/bq-dlt.json
       project: <client>-mds-prod
       dataset: analytics
       location: EU              # or US / asia-southeast1 / etc. — must match the project's location

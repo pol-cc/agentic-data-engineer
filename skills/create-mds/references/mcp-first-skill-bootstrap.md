@@ -2,6 +2,8 @@
 
 End state: one skill folder registered with the MCP server, the agent can answer natural-language questions about a domain of the warehouse. Total time: ~20-30 minutes (mostly writing context.md prose).
 
+> Reached only when the client **opted into** the MCP serving layer (Phase 3 is opt-in but recommended). The skill is queried through the **dedicated read-only** BigQuery service account scoped to the analytics dataset — so a skill can only expose marts the agent is allowed to read.
+
 ## Picking the domain
 
 For the first skill, pick the domain with the **cleanest, smallest set of marts already in place**. Reasoning: the first skill is also the user's first taste of the agentic interface — a confident, correct answer to a simple question wins them over. A skill on a half-finished mart layer disappoints.
@@ -61,9 +63,9 @@ cat > descriptor.json <<'EOF'
 EOF
 ```
 
-Replace placeholders. The `tables` array is the **enforcement boundary** — the MCP server's `run_bq_query` tool will reject queries that reference any table not in this list. Pick the smallest set the agent needs.
+Replace placeholders. The `tables` array is the **enforcement boundary** — the MCP server's `run_bq_query` tool will reject queries that reference any table not in this list. Pick the smallest set the agent needs. (This is the application-layer guard; the read-only SA scoped to the analytics dataset is the IAM-layer guard beneath it — defense in depth.)
 
-Don't include staging or intermediate tables. The MCP exposes deliverable layer (marts) only. If the agent needs raw data, the skill is too low-level — add an intermediate mart first.
+Don't include staging or intermediate tables. The MCP exposes deliverable layer (marts) only — and the read-only SA can't reach raw/staging anyway. If the agent needs raw data, the skill is too low-level — add an intermediate mart first.
 
 ## Step C — Write `context.md` (the business glossary)
 
@@ -317,7 +319,7 @@ git add mcp-skills/<SKILL>/
 git commit -m "Phase 3: bootstrap MCP skill: <SKILL>"
 ```
 
-The skill files are now versioned. Future edits (the "improve context.md when the agent gets something wrong" loop) happen via PR, and the user can review the change history.
+The skill files are now versioned. Future edits (the "improve context.md when the agent gets something wrong" loop) land via PR — either a local edit + push, or, if the optional write tools are enabled, a PR the agent opens for human review (never a direct push to `main`). Either way the user reviews the change history.
 
 ## Common gotchas
 

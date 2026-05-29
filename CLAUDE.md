@@ -6,7 +6,7 @@ You are reading this because the user opened a Claude Code session inside `agent
 
 ## What this repo is
 
-A library of skills (`skills/<name>/SKILL.md`) that an AI agent uses to build and evolve a **Modern Data Stack** for small and medium businesses. The stack is opinionated: Tailscale + Airbyte OSS + BigQuery + dbt + MCP, deployed on a VPS, fully driveable from a Claude Code session.
+A library of skills (`skills/<name>/SKILL.md`) that an AI agent uses to build and evolve a **Modern Data Stack** for small and medium businesses. The default stack is opinionated and agent-native: Tailscale + **dlt** + BigQuery + dbt-core + an optional MCP server, orchestrated by one linear script on a systemd timer, deployed on a small disposable VPS, fully driveable from a Claude Code session. (Airbyte OSS + cron remain documented alternatives.)
 
 The full design philosophy lives in [`shared-references/ai-native-principles.md`](shared-references/ai-native-principles.md). **Read it before doing anything substantive.**
 

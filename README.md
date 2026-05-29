@@ -13,20 +13,21 @@
 A complete data stack a PYME can afford:
 
 ```
-DATA SOURCES                INTEGRATION         WAREHOUSE          TRANSFORM          AGENTIC LAYER
-────────────                ───────────         ─────────          ─────────          ─────────────
+DATA SOURCES                INTEGRATION         WAREHOUSE          TRANSFORM          AGENTIC LAYER (opt-in)
+────────────                ───────────         ─────────          ─────────          ──────────────────────
 
-On-prem databases ──┐                                             dbt (VPS)          MCP server
-  (via Tailscale)   │      Airbyte OSS         BigQuery            staging/             (BigQuery-backed)
-                    │      (on VPS)     ──>    raw_* datasets ──>  marts/        ──>  Skills + .md
-SaaS APIs ──────────┤                                                                   context, callable
+On-prem databases ──┐       dlt                                   dbt (VPS)          MCP server
+  (via Tailscale)   │      (Python lib,         BigQuery            staging/             (BigQuery-backed)
+                    │       on VPS)      ──>    raw_* datasets ──>  marts/        ──>  Skills + .md
+SaaS APIs ──────────┤       + reconciliation                        (incremental)       context, callable
   (Factorial, etc.) │                                                                   from any MCP client
                     │
-Google services ────┘      BQ native           analytics_*
-  (GA4, Ads)               transfers     ──>   datasets
+Google services ────┘      BQ native           analytics_*       one linear script
+  (GA4, Ads)               transfers     ──>   datasets          dlt load → dbt build
+                                                                  (systemd timer)
 ```
 
-Cost: **~$5-10/month**. No vendor lock-in: every component is open-source or has a real free tier.
+Cost: **~$5-10/month** for a lean dlt build (BigQuery free tier + a small VPS + Tailscale free). Realistically more with heavy use or the Airbyte alternative — see the honest breakdown in [`shared-references/stack-rationale.md`](shared-references/stack-rationale.md). No hard vendor lock-in: ingestion and transformation are portable; the warehouse is a pragmatic managed default with a documented migration path.
 
 ## Design principles
 
@@ -34,7 +35,7 @@ This stack is **opinionated by default but adaptive in execution — it recommen
 
 1. **100% headless from Claude Code** — every lifecycle operation works from a terminal session. UIs are an inspection layer, never the only way.
 2. **Tailscale as first-class network layer** — zero public ports, on-prem databases reachable from the VPS, Claude reaches the VPS the same way.
-3. **Freemium-first opinionated stack** — BigQuery + Airbyte OSS + dbt-core + Tailscale + Hostinger VPS = real costs under $10/month for a starter PYME.
+3. **Freemium-first opinionated stack** — dlt + BigQuery + dbt-core + Tailscale + Hostinger VPS, orchestrated by one linear script on a systemd timer. Real costs near $10/month for a lean starter PYME.
 4. **GitHub-native ops** — every reproducible piece of the system lives in a GitHub repo. UI-only state is forbidden.
 5. **Marker-driven idempotence** — re-running a skill never duplicates work. A `.agentic-data-engineer.json` file in the client repo records what exists.
 6. **Observable from agent** — every component exposes logs/status via API or terminal so the agent can troubleshoot without a human screen.
@@ -85,7 +86,7 @@ You'll need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [H
 
 ## Status
 
-**v0.6.0 — installable as a plugin + non-dogmatic posture hardened.** The repo is now a Claude Code plugin and its own marketplace (`.claude-plugin/`), so the engineer's skills are available in any empty client folder. Principle 8 now explicitly licenses the agent to go *beyond* its own playbooks rather than dead-end, and `create-mds` writes a per-client `CLAUDE.md` so a deployment folder resumes as its own data engineer. All six skills have working references:
+**v0.7.0 — stack refactored to a leaner, agent-native default: dlt + BigQuery + dbt + systemd.** After a deep engineering review, the default ingestion moved from Airbyte OSS to **dlt** (a Python library: short feedback loop, state in the warehouse so the VPS is disposable) with **mandatory post-load reconciliation**, and orchestration moved from cron to **one linear script on a systemd timer** (kills the load-vs-transform race by construction). BigQuery stays (serving concurrency for the MCP + compute offload), with active cost control (incremental marts + bytes caps + a budget alert). The MCP layer is now **opt-in and hardened** (read-only service account; write tools off by default, PR-not-push). **Airbyte + cron remain as documented alternatives** for inherited or data-team-scale deployments. The repo is a Claude Code plugin + marketplace; `create-mds` writes a per-client `CLAUDE.md`. All six skills have working references:
 
 - **`create-mds`** — end-to-end: discovery-and-adapt (Step 0) → raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery) → dbt transforms on cron (Phase 2) → public MCP server with GitHub OAuth, BigQuery read tools, and **write tools** that let an AI client edit skill docs and push to `main` from chat (Phase 3).
 - **`add-source`** — Airbyte API, connector catalog, BQ native transfers, on-prem via Tailscale.

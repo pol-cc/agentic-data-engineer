@@ -5,7 +5,7 @@ description: "Add a new BigQuery-backed skill to the MCP server: a tool exposed 
 
 # add-mcp-skill
 
-> **Status**: v0.5.0 — folder-pattern reference written (the most important component) and the runnable MCP server skeleton (`templates/mcp-skeleton/`) is now included (FastMCP `server.py` with read + write tools, Docker/compose/deploy, and a working `example-sales` skill). Step-by-step playbook for adding a skill to an existing MCP server still skeletal.
+> **Status**: v0.7.0 — folder-pattern reference written (the most important component) and the runnable MCP server skeleton (`templates/mcp-skeleton/`) is now included (FastMCP `server.py` with read tools always-on and write tools **off by default**). **Write tools are safe-by-default: off unless `MCP_WRITE_TOOLS=on`, and when on they OPEN A PR for human review rather than pushing to `main`** (the server feeds untrusted synced data to an agent — see [`references/mcp-github-writeback.md`](references/mcp-github-writeback.md), "Security posture"). Docker/compose/deploy and a working `example-sales` skill ship too. Step-by-step playbook for adding a skill to an existing MCP server still skeletal.
 
 ## What this skill does
 
@@ -80,7 +80,7 @@ Background (in create-mds Phase 3):
 - [`../create-mds/references/mcp-server-architecture.md`](../create-mds/references/mcp-server-architecture.md) — how the MCP server uses these files
 
 Templates (complete):
-- [`templates/mcp-skeleton/`](templates/mcp-skeleton/) — runnable MCP server starter: FastMCP `server.py` (read tool + `list_skills`/`get_skill_context` + the two write tools, with the SELECT-only / table-allowlist / path-traversal / sync-before-write / rollback safety logic), `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `deploy.sh`, `README.md`, and a working `skills/example-sales/` skill (descriptor.json + context.md + schema.md + examples.sql)
+- [`templates/mcp-skeleton/`](templates/mcp-skeleton/) — runnable MCP server starter: FastMCP `server.py` (always-on read tool + `list_skills`/`get_skill_context`, plus the two write tools that register **only when `MCP_WRITE_TOOLS=on`** and then **open a PR rather than push to `main`** — `_open_pr` branches, commits, pushes the branch, and calls the GitHub PR API; with the SELECT-only / table-allowlist / path-traversal / sync-before-write / branch-cleanup-on-failure safety logic), `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `.env.example` (`MCP_WRITE_TOOLS=off` default), `deploy.sh`, `README.md`, and a working `skills/example-sales/` skill (descriptor.json + context.md + schema.md + examples.sql)
 
 Still to be written:
 - `references/skills-sapiens-reference.md` — annotated walkthrough of the production reference deployment's first skill

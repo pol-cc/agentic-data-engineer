@@ -1,0 +1,112 @@
+-- =============================================================================
+-- INCREMENTAL FACT MART TEMPLATE  —  fact_<EVENT>.sql  (BigQuery)
+-- =============================================================================
+-- Copy this file to:
+--   models/marts/fact_<EVENT>.sql
+--
+-- This is the DEFAULT shape for FACT / EVENT marts on BigQuery — one row per
+-- event (orders, page views, payroll runs, sensor readings). These tables grow
+-- forever and are append-mostly, so a full-refresh `table` materialization
+-- re-scans + rewrites the WHOLE history every run. BigQuery bills by bytes
+-- scanned, so that is a surprise-bill risk that grows with your data.
+--
+-- The fix: materialized='incremental' with insert_overwrite + partition_by.
+-- Each run only scans/writes the date partitions the new data touches; old
+-- partitions are left untouched. See references/incremental-and-cost.md for the
+-- full cost rationale and how this ties to the GCP budget alert + the MCP
+-- server's MAX_BYTES_BILLED cap.
+--
+-- WHEN to use THIS template (vs templates/marts.sql.template):
+--   fact_<event>      → THIS (incremental). Large, append-mostly event rows.
+--   dim_<entity>      → marts.sql.template (table). Small, recomputable.
+--   <domain>_<grain>  → marts.sql.template (table) if the aggregate is cheap.
+--
+-- Replace every <PLACEHOLDER>:
+--   <EVENT>         the event this fact represents          (e.g. order)
+--   <DATE_COL>      the partition date column (DATE type)   (e.g. order_date)
+--   <CLUSTER_KEY>   the most-filtered key, for clustering   (e.g. customer_id)
+--   <INPUT_MODEL>   the upstream staging/intermediate model read by ref()
+--   <PK>            the fact grain's primary key            (e.g. order_id)
+--
+-- Conventions enforced (see references/dbt-naming-conventions.md):
+--   - one CTE per input model; each ref() appears EXACTLY once; join in its own CTE
+--   - EXPLICIT column lists in the final shape — never `select *` from the
+--     warehouse (the trailing `select * from final` selects a CTE, which is OK)
+--   - no hardcoded project IDs — only {{ ref('...') }} / {{ source('...') }}
+--   - lowercase keywords, snake_case columns, trailing commas
+--   - prefer dbt cross-db macros over native BQ funcs ({{ dbt.date_trunc(...) }},
+--     {{ dbt.safe_cast(...) }}, dbt_utils helpers) — a LIGHT convention, not a
+--     framework. Flatten nested structs/arrays early (in staging).
+-- =============================================================================
+
+{{
+    config(
+        materialized='incremental',
+        incremental_strategy='insert_overwrite',
+        partition_by={
+            'field': '<DATE_COL>',
+            'data_type': 'date',
+        },
+        cluster_by=['<CLUSTER_KEY>'],
+        on_schema_change='append_new_columns'
+    )
+}}
+
+-- Why each config key:
+--   incremental_strategy='insert_overwrite'  → on an incremental run, dbt REPLACES
+--       whole partitions that the new batch covers (atomic, idempotent — safe to
+--       re-run the same day). The BigQuery-efficient strategy: only the touched
+--       partitions are scanned and rewritten, not the full table.
+--   partition_by {field, data_type:'date'}   → physically splits the table by day.
+--       This is what makes insert_overwrite (and the watermark filter below) only
+--       touch a small slice of the table. <DATE_COL> MUST be a DATE (or use
+--       'timestamp'/'datetime' + 'granularity':'day' if your column is a timestamp).
+--   cluster_by [<CLUSTER_KEY>]                → sorts within each partition by the
+--       column people filter/join on most (e.g. customer_id), cutting bytes scanned
+--       further. Choose 1-4 columns, highest-cardinality / most-filtered first.
+--   on_schema_change='append_new_columns'     → if upstream adds a column, add it to
+--       the table instead of failing the run (existing rows get NULL for it).
+
+with <INPUT_MODEL> as (
+
+    select * from {{ ref('<INPUT_MODEL>') }}
+
+    {% if is_incremental() %}
+    -- INCREMENTAL RUN ONLY: process just the recent window, not all history.
+    -- This guard is what keeps the per-run bytes scanned bounded. We re-load a
+    -- small look-back window (here 3 days) so late-arriving rows land in the
+    -- right partition; insert_overwrite makes re-loading a partition idempotent.
+    -- Tune the look-back to your source's lateness; widen if rows arrive late.
+    where <DATE_COL> >= (
+        select date_sub(max(<DATE_COL>), interval 3 day) from {{ this }}
+    )
+    {% endif %}
+
+),
+
+final as (
+
+    select
+        -- Primary key of the fact grain
+        <PK>,
+
+        -- Partition column — MUST be present and a DATE; never NULL
+        <DATE_COL>,
+
+        -- Foreign keys (one per dimension this fact references)
+        <CLUSTER_KEY>,
+        -- <other_entity>_id,
+
+        -- Measures (additive numbers describing the event)
+        -- <some>_amount,
+        -- <some>_count
+
+        -- Metadata watermark carried from staging (dlt _dlt_load_id / Airbyte
+        -- _airbyte_extracted_at, aliased upstream to loaded_at)
+        loaded_at
+
+    from <INPUT_MODEL>
+
+)
+
+select * from final

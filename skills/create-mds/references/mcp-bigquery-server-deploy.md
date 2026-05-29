@@ -1,17 +1,19 @@
 # MCP server deploy
 
-End state: an authenticated MCP server running as a Docker container, behind Traefik with TLS, exposing BigQuery read tools to AI clients. Total time: ~30 minutes (most of it building the image and waiting for first auth flow).
+End state: an authenticated MCP server running as a Docker container, behind Traefik with TLS, exposing BigQuery **read** tools to AI clients (write tools off by default). Total time: ~30 minutes (most of it building the image and waiting for first auth flow).
+
+> Only relevant when the client has **opted into** the MCP serving layer (Phase 3 is opt-in but recommended). If they stopped at Phase 2, skip this entirely.
 
 ## Architecture recap
 
-See [`mcp-server-architecture.md`](mcp-server-architecture.md) for the design decisions. Quick reminder:
+See [`mcp-server-architecture.md`](mcp-server-architecture.md) for the design decisions and the [security model](mcp-server-architecture.md#security-model). Quick reminder:
 
 - **Implementation**: FastMCP (Python). TypeScript with `@modelcontextprotocol/sdk` is a valid alternative — swap the framework, keep the rest.
 - **Transport**: Streamable HTTP (for claude.ai compatibility)
 - **Auth**: GitHub OAuth via FastMCP's `GitHubProvider` + username allowlist (`ALLOWED_GITHUB_USERS`)
-- **BigQuery access**: dedicated read-only service account, with byte + row caps
-- **Write tools**: `append_to_section` + `replace_in_file` commit + push skill-doc edits to the repo `main` (see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md))
-- **Skills storage**: the client repo, cloned live on the VPS and mounted into the container at `/repo` read-write
+- **BigQuery access**: a **dedicated read-only service account scoped to the analytics dataset** — NOT the dlt writer SA — with byte + row caps, SELECT-only, and the per-skill table allowlist
+- **Write tools**: **OFF by default.** When enabled, `append_to_section` + `replace_in_file` open a **PR** (branch + GitHub API), never push to `main` (see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md))
+- **Skills storage**: the client repo, cloned live on the VPS and mounted into the container at `/repo` (read-only is enough for the default read-only server; write tools need it writable to stage a branch)
 
 ## Preflight
 
@@ -19,7 +21,7 @@ See [`mcp-server-architecture.md`](mcp-server-architecture.md) for the design de
 ssh deploy@<client>-mds
 
 # Phase 3 prerequisites that should already be done:
-ls /home/deploy/secrets/bq-mcp-reader.json     # BQ read-only SA key
+ls /home/deploy/secrets/bq-mcp-reader.json     # dedicated READ-ONLY SA key (NOT the dlt writer key)
 docker ps | grep traefik                        # Traefik running
 dig +short mcp.<client-domain>.com              # DNS resolves to this VPS
 curl -I https://mcp.<client-domain>.com/        # TLS works (Traefik returns 404, that's fine)
@@ -28,8 +30,9 @@ curl -I https://mcp.<client-domain>.com/        # TLS works (Traefik returns 404
 test -n "$GITHUB_CLIENT_ID" || echo "[need] GITHUB_CLIENT_ID"
 test -n "$GITHUB_CLIENT_SECRET" || echo "[need] GITHUB_CLIENT_SECRET"
 
-# If write tools are enabled, the fine-grained PAT must be available too
-test -n "$GITHUB_TOKEN" || echo "[need] GITHUB_TOKEN (only if write tools enabled — see mcp-github-writeback.md)"
+# Write tools are OFF by default. ONLY if the client opted into them, the
+# fine-grained PAT (branch + PR scope on this repo) must be available too:
+test -n "$GITHUB_TOKEN" || echo "[ok] GITHUB_TOKEN unset — server runs read-only (default)"
 ```
 
 If any prerequisite is missing, complete it before continuing — none of the steps below skip safely.
@@ -57,7 +60,7 @@ The minimal shape, summarized — the actual implementation should live in a ded
 mcp-server/
 ├── requirements.txt             fastmcp, google-cloud-bigquery  (git is a system dep in the image)
 ├── Dockerfile
-├── server.py                    entry: FastMCP app, GitHubProvider auth, read tool + 2 write tools
+├── server.py                    entry: FastMCP app, GitHubProvider auth, read tool + (optional, off-by-default) 2 write tools
 ├── deploy.sh                    preflight (clean tree + HEAD==origin/main) then fetch/reset/rebuild
 ├── docker-compose.yml
 └── README.md
@@ -89,9 +92,15 @@ def _authorize_request():
 mcp = FastMCP("client-mds", auth=auth)
 
 # --- BigQuery read tool (byte + row caps, SELECT only) ---------------------
+# The BQ client picks up the DEDICATED READ-ONLY SA key from GCP_CREDS_PATH
+# (GOOGLE_APPLICATION_CREDENTIALS). This SA can read ONLY the analytics dataset
+# and cannot write — it is NOT the dlt writer SA. Least privilege at the IAM layer.
 bq = bigquery.Client(project=os.environ["GCP_PROJECT"])
 MAX_BYTES_BILLED = int(os.environ.get("MAX_BYTES_BILLED", 2 * 1024**3))   # 2 GiB
 MAX_ROWS         = int(os.environ.get("MAX_ROWS", 1000))
+
+# Write tools are OFF unless explicitly enabled. The default deployment is read-only.
+WRITE_TOOLS_ENABLED = bool(os.environ.get("GITHUB_TOKEN"))   # PAT present => write tools on
 
 @mcp.tool
 def run_bq_query(skill: str, sql: str) -> list[dict]:
@@ -103,47 +112,55 @@ def run_bq_query(skill: str, sql: str) -> list[dict]:
         maximum_bytes_billed=MAX_BYTES_BILLED, dry_run=False))
     return [dict(r) for r in job.result(max_results=MAX_ROWS)]
 
-# --- write tools: edit skill docs, commit + push to repo main --------------
-# Full mechanism (PAT, _git_setup, _sync_to_origin, _commit_and_push,
+# --- write tools: propose skill-doc edits as a PR (OFF by default) ---------
+# Registered ONLY when WRITE_TOOLS_ENABLED. They do NOT push to main — they
+# commit to a fresh branch and open a PR for human review. Full mechanism
+# (PAT scope, _git_setup, _sync_to_origin, branch + PR via the GitHub API,
 # path-traversal guard) is documented in mcp-github-writeback.md.
 
-@mcp.tool
-def append_to_section(skill: str, file_key: str, section: str, text: str) -> str:
-    login = _authorize_request()
-    path = _resolve_skill_file(skill, file_key)      # guarded; stays inside skills/<skill>/
-    _sync_to_origin()                                # fetch + hard-reset to origin/main
-    _append_under_heading(path, section, text)
-    return _commit_and_push(f"docs({skill}): append to {section}", login, path)
+if WRITE_TOOLS_ENABLED:
 
-@mcp.tool
-def replace_in_file(skill: str, file_key: str, old: str, new: str) -> str:
-    login = _authorize_request()
-    path = _resolve_skill_file(skill, file_key)
-    _sync_to_origin()
-    _replace_substring(path, old, new)
-    return _commit_and_push(f"docs({skill}): replace text", login, path)
+    @mcp.tool
+    def append_to_section(skill: str, file_key: str, section: str, text: str) -> str:
+        login = _authorize_request()
+        path = _resolve_skill_file(skill, file_key)  # guarded; stays inside skills/<skill>/
+        _sync_to_origin()                            # fetch + hard-reset to origin/main
+        _append_under_heading(path, section, text)
+        # commit to a new branch and open a PR — never push to main
+        return _open_pr(f"docs({skill}): append to {section}", login, path)
+
+    @mcp.tool
+    def replace_in_file(skill: str, file_key: str, old: str, new: str) -> str:
+        login = _authorize_request()
+        path = _resolve_skill_file(skill, file_key)
+        _sync_to_origin()
+        _replace_substring(path, old, new)
+        return _open_pr(f"docs({skill}): replace text", login, path)
 
 if __name__ == "__main__":
-    _git_setup()                                     # safe.directory, identity, PAT remote URL
+    if WRITE_TOOLS_ENABLED:
+        _git_setup()                                 # safe.directory, identity, PAT remote URL
     mcp.run(transport="streamable-http", host="0.0.0.0", port=8000)
 ```
 
 Key implementation notes (for whoever writes the skeleton):
 
 - **`run_bq_query` MUST**:
+  - Connect with the **dedicated read-only SA** (scoped to the analytics dataset) — defense at the IAM layer, beneath every check below. Never the dlt writer SA.
   - Use a BQ `dry_run` job (or a real SQL parser) to detect referenced tables and reject any query touching a table not in the current skill's `descriptor.json` allowlist.
   - Enforce `maximum_bytes_billed` on the job from `MAX_BYTES_BILLED` (default 2 GiB).
   - Cap returned rows at `MAX_ROWS` (default 1000).
   - Reject any statement that isn't `SELECT` — no DML, no DDL, no procedures.
+  - Treat returned rows as **untrusted** — they may carry prompt-injection payloads (the data was synced from outside the org). The read-only SA + SELECT-only + caps ensure a steered agent has nothing to escalate into. See [security model](mcp-server-architecture.md#security-model).
 - **Inbound auth** (`GitHubProvider`):
   - FastMCP's `GitHubProvider` handles the GitHub OAuth handshake and token verification — no hand-rolled `/auth/...` routes.
   - `_authorize_request()` reads the `login` claim from the verified access token and checks it against `ALLOWED_GITHUB_USERS` (comma-separated env; **empty = any authenticated GitHub user**).
-- **Write tools** (`append_to_section`, `replace_in_file`):
+- **Write tools** (`append_to_section`, `replace_in_file`) — **only registered when `GITHUB_TOKEN` is set; off by default**:
   - On startup `_git_setup()` configures `safe.directory`, the `claude-bot` identity, and bakes the `GITHUB_TOKEN` PAT into the origin remote URL.
   - Before every write, `_sync_to_origin()` refuses a dirty tree, fetches, and hard-resets to `origin/main` (self-healing against non-fast-forward).
-  - `_commit_and_push()` commits with a `Co-Authored-By: <caller_login>` trailer and pushes to `main`; on push failure it rolls back the local commit.
+  - The write path **opens a PR, not a push to `main`**: commit to a new branch, push the branch, open a pull request via the GitHub API / `gh` for human review (commit carries a `Co-Authored-By: <caller_login>` trailer). This PR gate is what makes the feature safe against prompt injection.
   - `_resolve_skill_file()` maps logical keys to paths and **rejects anything escaping `skills/<skill>/`** — safety is by tool scoping, not filesystem perms.
-  - Full detail: [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+  - Exact branch/PR mechanics, PAT scopes, and rollback are owned by [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md) — defer to it; don't duplicate specifics here.
 - **Skill discovery**:
   - On startup, scan the cloned repo's `skills/` for subdirectories with a valid `descriptor.json`.
   - Skill `.md` files are read live off the mounted clone, so a chat-driven write (or a human push) is picked up without a rebuild.
@@ -199,10 +216,10 @@ services:
       # Public base URL (FastMCP uses this for the OAuth callback)
       - PUBLIC_BASE_URL=https://mcp.<client-domain>.com
 
-      # BigQuery
+      # BigQuery — dedicated READ-ONLY SA, scoped to the analytics dataset (NOT the dlt writer)
       - GCP_PROJECT=<client>-mds-prod
       - BQ_LOCATION=EU
-      - GCP_CREDS_PATH=/secrets/bq-mcp-reader.json   # read by the BQ client
+      - GCP_CREDS_PATH=/secrets/bq-mcp-reader.json   # read-only SA key, read by the BQ client
 
       # Read caps (defaults; per-skill descriptor.json can tighten)
       - MAX_BYTES_BILLED=2147483648                  # 2 GiB
@@ -213,13 +230,17 @@ services:
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - ALLOWED_GITHUB_USERS=acme-cto,acme-data-analyst   # comma-separated; empty = any authed GitHub user
 
-      # Write tools — fine-grained PAT (contents:write on this repo only).
-      # Omit to run read-only. See mcp-github-writeback.md.
+      # Write tools — OFF BY DEFAULT. Leave GITHUB_TOKEN unset for a read-only
+      # server (the recommended baseline). Set it ONLY if the client opted in;
+      # when set, write tools open a PR (branch + GitHub API), never push to main.
+      # Fine-grained PAT scoped to this repo (branch push + PR). See mcp-github-writeback.md.
       - GITHUB_TOKEN=${GITHUB_TOKEN}
 
     volumes:
       - /home/deploy/secrets/bq-mcp-reader.json:/secrets/bq-mcp-reader.json:ro
-      - /root/<client>-mds:/repo:rw                  # live git clone of the client repo (skills live here)
+      # read-only server: mount /repo :ro. Switch to :rw only if write tools are enabled
+      # (they stage a branch in the clone before opening the PR).
+      - /root/<client>-mds:/repo:ro                  # live git clone of the client repo (skills live here)
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.mcp.rule=Host(`mcp.<client-domain>.com`)"
@@ -235,7 +256,7 @@ EOF
 
 Replace `<client>` and `<client-domain>.com` with actual values. Customize `ALLOWED_GITHUB_USERS` with the GitHub logins captured in Phase 3 Step 5.
 
-> **`/repo` is mounted `rw`** because the write tools commit + push from inside the container. Safety is enforced by tool scoping (the path-traversal guard in `_resolve_skill_file`), not by the mount being read-only — see [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md). To run **read-only**, simply omit `GITHUB_TOKEN`; the read tool and inbound OAuth still work.
+> **The default is read-only.** Leave `GITHUB_TOKEN` unset and `/repo` mounted `:ro` — the read tool and inbound OAuth still work; the write tools simply aren't registered. Enable write tools only when the client opted in: set `GITHUB_TOKEN` **and** switch the `/repo` mount to `:rw` (the tools stage a branch in the clone before opening the PR). Even then, safety rests on three layers — write tools off unless opted in, **PR-not-push** (human review), and tool scoping (the path-traversal guard in `_resolve_skill_file`) — not on the mount being read-only. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
 
 ## Step D — Set the env file
 
@@ -246,9 +267,11 @@ cat > /home/deploy/mcp-server/.env <<EOF
 GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID
 GITHUB_CLIENT_SECRET=$GITHUB_CLIENT_SECRET
 
-# Write tools (omit to run read-only). Fine-grained PAT, contents:write on this repo.
+# Write tools — OFF BY DEFAULT: leave the next line out entirely for a read-only server.
+# Add it ONLY if the client opted into write tools. Fine-grained PAT scoped to this repo
+# (branch push + open PR). Write tools open a PR, never push to main.
 # Rotate ~every 90 days: edit this line and restart the container — no re-clone.
-GITHUB_TOKEN=$GITHUB_TOKEN
+# GITHUB_TOKEN=$GITHUB_TOKEN
 EOF
 chmod 600 /home/deploy/mcp-server/.env
 ```
@@ -265,7 +288,7 @@ git clone https://github.com/<owner>/<client>-mds.git /root/<client>-mds
 # Initially the skills/ dir may be empty; the first skill is added in the next step.
 ```
 
-`origin/main` is the source of truth; both human pushes (then `deploy.sh`) and chat-driven write tools converge here. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+`origin/main` is the source of truth. Human pushes (then `deploy.sh`) land there directly; chat-driven write tools (when enabled) arrive via a reviewed PR. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
 
 ## Step F — Bring up the container
 
@@ -280,16 +303,20 @@ docker logs mcp 2>&1 | tail -30
 Expected log output:
 
 ```
-[mcp] git_setup: safe.directory=/repo, identity=claude-bot, origin=x-access-token@github.com/<owner>/<client>-mds
-[mcp] connected to BigQuery project <client>-mds-prod (EU)
+[mcp] connected to BigQuery project <client>-mds-prod (EU) — read-only SA, analytics dataset
 [mcp] GitHubProvider configured, callback base: https://mcp.<client-domain>.com
 [mcp] allowlist: [acme-cto, acme-data-analyst]
-[mcp] write tools: enabled  (GITHUB_TOKEN present)
+[mcp] write tools: disabled (read-only)  — GITHUB_TOKEN unset
 [mcp] loaded 0 skills from /repo/skills
 [mcp] FastMCP running (streamable-http) on 0.0.0.0:8000
 ```
 
-(If `GITHUB_TOKEN` is unset you'll see `write tools: disabled (read-only)` and the `git_setup` line is skipped.)
+The default deployment is **read-only** — that `write tools: disabled` line is the expected, correct state. If (and only if) the client opted into write tools, `GITHUB_TOKEN` is present and you'll instead see a `git_setup` line plus `write tools: enabled (PR mode)`:
+
+```
+[mcp] git_setup: safe.directory=/repo, identity=claude-bot, origin=x-access-token@github.com/<owner>/<client>-mds
+[mcp] write tools: enabled (PR mode)  — edits open a PR for review, never push to main
+```
 
 If any line says `error` or `failed to start`: stop, fix, retry. Common issues at the bottom of this file.
 
@@ -336,8 +363,8 @@ Continue with [`mcp-first-skill-bootstrap.md`](mcp-first-skill-bootstrap.md) to 
 - **GitHub OAuth callback returns "redirect_uri mismatch"** → the callback configured in the GitHub OAuth app must match the URL `GitHubProvider` derives from `PUBLIC_BASE_URL`. Confirm `PUBLIC_BASE_URL` has no trailing slash and matches the OAuth app's callback exactly.
 - **claude.ai connector "fails to connect"** → check that the MCP URL in claude.ai settings ends in `/mcp` (not just the bare hostname).
 - **First query times out** → BigQuery cold start on a new project + the `MAX_BYTES_BILLED` cap rejects oversized queries. Look at the BQ console job history for the exact error.
-- **`dubious ownership in repository at '/repo'`** → `_git_setup()`'s `safe.directory` config didn't run; the container UID differs from the host owner of the clone. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
-- **Write tool 403 on push** → `GITHUB_TOKEN` missing, expired, or lacking `contents:write`. Rotate in `.env` and restart.
+- **`dubious ownership in repository at '/repo'`** (write tools only) → `_git_setup()`'s `safe.directory` config didn't run; the container UID differs from the host owner of the clone. See [`../../add-mcp-skill/references/mcp-github-writeback.md`](../../add-mcp-skill/references/mcp-github-writeback.md).
+- **Write tool 403 opening the PR** (write tools only) → `GITHUB_TOKEN` missing, expired, or lacking the branch-push / PR scopes on this repo. Rotate in `.env` and restart. (Most read-only deployments will never hit this — write tools are off by default.)
 
 ## Marker state after this step
 
@@ -351,12 +378,13 @@ Continue with [`mcp-first-skill-bootstrap.md`](mcp-first-skill-bootstrap.md) to 
     "mcp_impl": "fastmcp_python",
     "mcp_auth": "github_oauth",
     "mcp_allowed_users": ["acme-cto", "acme-data-analyst"],
-    "mcp_write_tools": true,
+    "mcp_write_tools": false,
     "mcp_bq_service_account": "mcp-reader@<client>-mds-prod.iam.gserviceaccount.com",
+    "mcp_bq_read_scope": "dataset:analytics",
     "mcp_server_path_on_vps": "/home/deploy/mcp-server",
     "mcp_repo_clone_on_vps": "/root/<client>-mds"
   }
 }
 ```
 
-(Set `"mcp_write_tools": false` when `GITHUB_TOKEN` is omitted and the server runs read-only.)
+`"mcp_write_tools": false` is the default — `GITHUB_TOKEN` omitted, server read-only. Set it to `true` only when the client opted into the PR-not-push write path.

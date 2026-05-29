@@ -5,7 +5,7 @@ description: "Diagnose pipeline issues by reading logs and state across Airbyte,
 
 # troubleshoot
 
-> **Status**: v0.5.0 — references written; diagnostic playbook operational.
+> **Status**: v0.7.0 — references written; diagnostic playbook operational. Now covers the **dlt-era ingest failure modes** — the silent data gap (a mis-set incremental cursor that skips rows without crashing), a partial load (`_dlt_loads` status non-zero), a source-vs-destination reconciliation mismatch, and a systemd timer that didn't fire — alongside the original Airbyte/dbt/BQ/MCP modes.
 
 ## What this skill does
 
@@ -68,14 +68,19 @@ ssh ... "cat /root/dbt/<project>/target/run_results.json | jq '.results[] | sele
 
 ## Common failure modes
 
-To be documented in `references/common-failures.md`:
+Catalogued in `references/common-failures.md`:
 
+- **Silent data gap** — a dlt incremental cursor mis-set skips rows without erroring; only reconciliation (source vs destination) catches it. The dlt stack's signature failure.
+- **dlt partial load** — `_dlt_loads` latest `status != 0`; the load died mid-write, leaving a partial package. Re-run to recover.
+- **Reconciliation mismatch source vs destination** — counts disagree beyond tolerance; diagnose by sign (dest < source = gap; dest > source = duplicates or source purge).
+- **systemd timer didn't fire** — the dlt load never ran (timer disabled, service failed, wrong `OnCalendar`, or no `Persistent=true`).
 - Tailscale on on-prem server marked offline (Windows reboot, service stopped)
-- Airbyte `abctl` controller killed by OOM on small VPS
+- Airbyte `abctl` controller killed by OOM on small VPS (when `stack.ingest == "airbyte"`)
 - Airbyte API 403 because the client_id/client_secret was rotated and the marker still references the old one
 - BigQuery quota exceeded (free tier crossed)
-- dbt failed because `stg_*` ran before the Airbyte sync completed (race condition — fix is reschedule)
+- dbt failed because `stg_*` ran before the ingest load completed (race condition — fix is reschedule)
 - GA4 export missing today's table (Google delay, not an error)
+- MCP write-tools PR failing (PAT expired or missing `pull_requests:write`) — write tools are off by default and open PRs, not pushes
 
 ## Output
 

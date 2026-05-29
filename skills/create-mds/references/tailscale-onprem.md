@@ -132,7 +132,7 @@ ping <onprem-host-name>
 nc -zv <onprem-host-name> 1433   # if SQL Server on default port
 ```
 
-If the on-prem database accepts connections from `100.x.x.x` (its tailnet IP), Airbyte will be able to reach it as a generic database connector.
+If the on-prem database accepts connections from `100.x.x.x` (its tailnet IP), the dlt `sql_database` source running on the VPS will be able to reach it over the tailnet (see [`add-source`](../../add-source/SKILL.md)). (If you ran the Airbyte alternative instead, the same reachability lets Airbyte's generic database connector reach it.)
 
 > **Gotcha**: many on-prem firewalls block all incoming traffic by default. The on-prem database's firewall must allow the Tailscale interface — typically `Tailscale Network Adapter` on Windows. This is the only manual firewall touch on the on-prem side.
 

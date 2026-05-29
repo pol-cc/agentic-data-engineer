@@ -1,5 +1,7 @@
 # Airbyte OSS install on the VPS
 
+> **ALTERNATIVE INGESTION (documented escape) — the default is dlt.** The default MDS ingests with **dlt** ([`dlt-on-vps-install.md`](dlt-on-vps-install.md)): a Python library with a short agent feedback loop and warehouse-resident state (cattle, not pet). Airbyte OSS is **battle-tested but heavier and less agent-native** — it's a Kubernetes-in-Docker control plane the agent operates through a job API, not a script it runs and reads. **Use this only when** you've inherited an existing Airbyte deployment, the team is already committed to it, you're at data-team scale where Airbyte's connector catalog and UI earn their keep, or a single SaaS source defeats a dlt `rest_api` config (the per-source escape hatch in [`add-source`](../../add-source/SKILL.md)). For a fresh lean PYME deployment, **do not install this — use dlt.** The content below remains correct if you do run Airbyte.
+
 End state: Airbyte OSS running on the VPS, accessible from inside the tailnet, with a working OAuth2 API. Total time: ~15-25 minutes (most of it Airbyte's initial container pull and Kind cluster boot).
 
 ## Why `abctl` (Airbyte's CLI installer)

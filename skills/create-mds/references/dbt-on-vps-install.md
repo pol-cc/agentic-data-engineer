@@ -1,6 +1,6 @@
 # dbt install on the VPS
 
-End state: a Python venv at `/home/deploy/dbt-env/` containing `dbt-core` and `dbt-bigquery`, ready to be invoked from the cron job. Total time: ~5 minutes.
+End state: a Python venv at `/home/deploy/dbt-env/` containing `dbt-core` and `dbt-bigquery`, ready to be invoked as the `dbt build` stage of the linear pipeline script. Total time: ~5 minutes.
 
 ## Why a venv, not system Python
 
@@ -84,7 +84,7 @@ For interactive sessions over SSH, add a convenience alias:
 echo 'alias dbt-activate="source /home/deploy/dbt-env/bin/activate"' >> ~/.bashrc
 ```
 
-The cron job will use the absolute path (`/home/deploy/dbt-env/bin/dbt`), so it doesn't depend on shell activation. See [`dbt-cron-scheduling.md`](dbt-cron-scheduling.md).
+The linear pipeline script invokes dbt by absolute path (`/home/deploy/dbt-env/bin/dbt build`), so it doesn't depend on shell activation. See [`orchestration-systemd.md`](orchestration-systemd.md). (The [cron alternative](dbt-cron-scheduling.md) uses the same absolute path.)
 
 ## Common gotchas
 

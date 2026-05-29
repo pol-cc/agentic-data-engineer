@@ -6,11 +6,28 @@
 --
 -- A mart is the DELIVERABLE layer — the tables humans, dashboards, and the MCP
 -- server query. Business logic lives here. Marts join staging and intermediate
--- models freely. Materialized as a TABLE (queryable fast, stable through the day).
+-- models freely.
+--
+-- THIS TEMPLATE is for the DIMENSION / small-report case: materialized as a
+-- TABLE, fully recomputed each run (queryable fast, stable through the day).
+--
+--   ┌─ WHICH TEMPLATE? (materialization is a COST decision on BigQuery, which
+--   │  bills by bytes scanned — a full-refresh `table` on a growing fact table
+--   │  is a surprise-bill risk. See references/incremental-and-cost.md.)
+--   │
+--   │  dim_<entity>     → THIS template (materialized='table').
+--   │                     Small, slowly-changing, cheap to fully recompute.
+--   │  <domain>_<grain> → THIS template if the aggregate is small/cheap
+--   │                     (e.g. revenue_monthly over a few thousand rows).
+--   │  fact_<event>     → use templates/marts_incremental.sql.template instead.
+--   │                     Large, append-mostly event tables (orders, page views,
+--   │                     payroll runs, sensor readings) go INCREMENTAL so each
+--   │                     run only scans/writes the touched date partitions.
+--   └─
 --
 -- Name it (see references/dbt-naming-conventions.md):
 --   dim_<entity>        slowly-changing entity attributes (dim_customers)
---   fact_<event>        one row per event              (fact_orders)
+--   fact_<event>        one row per event              (fact_orders)  ← incremental!
 --   <domain>_<grain>    pre-aggregated report          (revenue_monthly)
 --
 -- Replace every <PLACEHOLDER>:
@@ -24,8 +41,13 @@
 --     warehouse (the trailing `select * from joined` selects a CTE, which is OK)
 --   - no hardcoded project IDs — only {{ ref('...') }} / {{ source('...') }}
 --   - lowercase keywords, snake_case columns, trailing commas
+--   - prefer dbt cross-db macros over native BQ funcs ({{ dbt.date_trunc(...) }},
+--     {{ dbt.safe_cast(...) }}, dbt_utils helpers) — a LIGHT convention to keep
+--     dialect lock-in contained, NOT a mandatory framework. Flatten nested
+--     structs/arrays early (in staging). See references/incremental-and-cost.md.
 -- =============================================================================
 
+-- DIMENSION case: fully recomputed each run. Correct + simple by default.
 {{ config(materialized='table') }}
 
 with <INPUT_MODEL_A> as (

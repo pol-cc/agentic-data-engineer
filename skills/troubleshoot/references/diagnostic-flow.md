@@ -151,12 +151,31 @@ bq query --use_legacy_sql=false "
 
 (Use the project's actual region — `region-EU` or `region-US` per `decisions.bq_location`.)
 
+dlt load state + a cheap completeness check (the dlt stack's silent-gap detector — freshness alone won't catch it):
+
+```bash
+# dlt bookkeeping: did the last load complete? (status 0 = ok)
+bq query --use_legacy_sql=false "
+  SELECT load_id, schema_name, status,
+         TIMESTAMP_MILLIS(CAST(inserted_at AS INT64)) AS loaded_at
+  FROM \`${BQ_PROJECT}.<raw_dataset>._dlt_loads\` ORDER BY inserted_at DESC LIMIT 5"
+
+# Sequence-gap on a monotonic key — a gap IS a missing row (no source round-trip needed)
+bq query --use_legacy_sql=false "
+  SELECT (MAX(id)-MIN(id)+1)-COUNT(DISTINCT id) AS missing
+  FROM \`${BQ_PROJECT}.<raw_dataset>.<table>\`"
+```
+
+For the full source-vs-destination reconciliation (and the incremental cursor-window comparison), use [verify-pipeline section 4](../../verify-pipeline/references/health-checks.md#4-ingest-reconciliation-the-dlt-gap-nobody-had) — `troubleshoot` reuses those queries; this step just routes to the right failure entry.
+
 **What a failure implies:**
 
 | Symptom | Implies |
 |---|---|
 | raw table fresh, `stg_` stale/empty | dbt didn't run or failed — drill into Step 5. |
-| raw table stale | Airbyte didn't deliver — back to Step 3. |
+| raw table stale | ingestion didn't deliver — back to Step 3 (dlt `_dlt_loads` / Airbyte jobs). |
+| raw fresh but **fewer rows than the source** | the silent gap — a dlt cursor/paginator skipped rows without erroring. Reconcile source vs destination. See [silent data gap](common-failures.md#silent-data-gap-dlt-incremental-cursor-mis-set) and [reconciliation mismatch](common-failures.md#reconciliation-mismatch-source-vs-destination). |
+| `_dlt_loads` latest `status != 0` | a dlt load aborted mid-write — partial package. See [dlt partial load](common-failures.md#dlt-load-partial--_dlt_loads-shows-failed). |
 | `JOBS_BY_PROJECT` shows `quotaExceeded` | [BQ free-tier quota exceeded](common-failures.md#bigquery-free-tier-quota-exceeded). |
 | GA4 today's table missing | Expected Google export lag — **not** an error. See [common-failures: GA4 export lag](common-failures.md#ga4-export-missing-todays-table). |
 | `stg_` rows << raw rows | Possible race condition — staging ran mid-sync. See [common-failures: dbt race](common-failures.md#dbt-staging-ran-before-airbyte-finished-race-condition). |

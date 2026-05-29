@@ -24,7 +24,7 @@ Read every section below as a **decision point, not a commandment.** Each compon
 
 ## Hostinger VPS — the compute host
 
-**Chosen because**: KVM 2 plan at ~$5-8/month gives 2 vCPU, 8 GB RAM, 100 GB NVMe — enough headroom for Airbyte OSS, dbt, and an MCP server container with comfort. Hostinger's API and CLI allow headless provisioning.
+**Chosen because**: KVM 2 plan at ~$5-8/month gives 2 vCPU, 8 GB RAM, 100 GB NVMe — comfortable for dlt + dbt + an (optional) MCP server container. With the dlt default (no Airbyte Kubernetes-in-Docker), the box is lean and even a smaller tier works; KVM 2 stays the safe recommendation. The VPS is **disposable** — durable state lives in BigQuery (`_dlt_*` cursors) and the client repo, so a rebuild loses nothing. Hostinger's API and CLI allow headless provisioning.
 
 **Alternatives considered**:
 - *Hetzner Cloud* — better price/performance, but no managed snapshots in the cheapest tier. Equivalent choice if the client prefers EU billing or has Hetzner credits.
@@ -36,23 +36,32 @@ Read every section below as a **decision point, not a commandment.** Each compon
 
 ---
 
-## Airbyte OSS — the integration engine
+## dlt — the integration engine (default)
 
-**Chosen because**: open-source, self-hostable, broadest connector catalog of any open-source ELT tool (300+), exposes a full REST API for headless ops (principle 6). The `abctl` CLI installs it cleanly on a Linux VPS via a Kind-based Kubernetes-in-Docker.
+**Chosen because** (the agent-native case): dlt (data load tool) is a **Python library, not a platform**. The agent writes a pipeline config, runs `python load.py`, and gets a stack trace or a row count immediately — on the same layer it acts. That short feedback loop is exactly where an agent is strong. dlt also persists its incremental state (cursors) to the **destination warehouse** (`_dlt_*` tables), not to a local DB on the box — so a lost VPS is rebuilt from the repo with cursors intact ("cattle, not pet"). And dlt loads to BigQuery / DuckDB / Postgres / Snowflake by changing one config line, which keeps the warehouse escape-hatch genuinely open (principle 7). For DBs (the on-prem-via-Tailscale case), dlt's `sql_database` source with the Arrow/ConnectorX backend is as good as any.
+
+**The one caveat, designed around**: dlt's failure mode is *insidious* — a mis-set incremental cursor or paginator leaves **silent data gaps** rather than crashing. So **reconciliation after every load is mandatory** (row-count source-vs-destination, freshness, gap checks). That turns the silent failure loud and is what makes dlt safe. See `skills/add-source/references/dlt-state-and-reconstruction.md`.
 
 **Alternatives considered**:
-- *Fivetran* — best-in-class managed, but $500+/month minimum and the job state lives only in their UI. Violates principles 3 and 6.
-- *Meltano* — open-source, but smaller connector catalog and the dbt integration story overlaps with `add-dbt-model` here.
-- *dlt (Python lib)* — code-first, no UI, more flexible. Worth a skill of its own one day for clients who want code-only sources. For now Airbyte's coverage wins.
-- *Custom Python scripts* — fine for one-off sources, doesn't scale to 5+ sources without becoming a maintenance burden.
+- *Airbyte OSS* — battle-tested connectors and a 300+ catalog, but it's a heavy Kubernetes-in-Docker control plane (Temporal + workers) the agent operates through a job API, not a script it runs and reads. Keeps state on the box (breaks the cattle-not-pet property) and needs a bigger, pricier VPS. **Kept as a documented escape hatch** (`skills/create-mds/references/airbyte-install.md`) for inherited deployments, data-team scale, or a single SaaS source that defeats a dlt config. Its public API is under `/api/public/v1/` (not `/api/v2/`) with OAuth2 — documented in `skills/add-source/references/airbyte-api-gotchas.md`.
+- *Singer taps* — run a maintained tap standalone as a subprocess (dlt can ingest from it) for the one gnarly SaaS API. Per-source escape, not a platform.
+- *Fivetran* — best-in-class managed, but $500+/month minimum and job state only in their UI. Violates principles 3 and 6.
+- *Meltano* — open-source, but heavier than dlt for the agent loop and overlaps dbt.
 
-**Gotchas baked into the skills**: Airbyte's public API is served under `/api/public/v1/` (not `/api/v2/`), uses OAuth2 client credentials, and has a few endpoints that 403/500 if you use the wrong base path. The `references/airbyte-api-gotchas.md` file (in `skills/add-source/`) documents these.
+**The rule**: dlt by default; a maintained connector (Airbyte standalone / Singer) per source, as a documented exception — principle 8 applied to the ingestion layer.
+
+**Google services exception**: GA4, Google Ads, Search Console use BigQuery's **native transfers**, never dlt or Airbyte — more reliable and it saves the integration layer entirely for those sources.
 
 ---
 
 ## BigQuery — the warehouse
 
-**Chosen because**: real free tier (10 GB storage + 1 TB queries/month) carries most PYMEs forever, native integrations with GA4 and Google Ads (no Airbyte needed for them — saves connector slots), separation of storage and compute means you don't pay for "idle warehouse" like Snowflake, and the SQL dialect is close to ANSI.
+**Chosen because**: real free tier (10 GB storage + 1 TB queries/month) carries most PYMEs far, native integrations with GA4 and Google Ads (no integration tool needed for them), separation of storage and compute means you don't pay for "idle warehouse" like Snowflake, and the SQL dialect is close to ANSI. But the two *strongest* reasons are agent-native:
+- **Serving concurrency for the MCP.** The MCP layer serves potentially concurrent reads from AI clients while loads and transforms run. BigQuery (serverless) gives unlimited concurrent reads with zero thought. DuckDB is a single-file store (multi-reader OR one-writer) — you'd hit contention and have to architect a read replica / Parquet snapshot. This is a *present* need, not hypothetical.
+- **Compute offload at scale.** dbt push-down means transformation compute runs on Google's servers, not your cheap VPS. At millions of rows it's irrelevant; at x100 (hundreds of millions) the elastic compute keeps a small box from drowning in marts.
+- **Zero infra to keep alive.** Serverless = nothing for the agent to provision, patch, or monitor; no 3am page. For an agent-operated stack, that's worth a lot.
+
+**The honest caveat (cost, not infra)**: BigQuery bills by bytes scanned. A full-refresh dbt model on growing tables, or a careless query, can eat the free tier and start billing. This is handled actively, not ignored: `maximum_bytes_billed` on every query (the MCP enforces it), **incremental + partition + cluster by default** for fact marts (`skills/add-dbt-model/references/incremental-and-cost.md`), and a **GCP budget alert** set during `create-mds`. The "self-hosted / no lock-in" promise is therefore softened honestly: the *transformation layer* is portable (dlt + dbt), the *warehouse* is a pragmatic managed default with a documented migration path — not literally self-hosted.
 
 **Alternatives considered**:
 - *Snowflake* — more powerful but $800+/month minimum spend kills the PYME story. Reconsider when client revenue justifies it.
