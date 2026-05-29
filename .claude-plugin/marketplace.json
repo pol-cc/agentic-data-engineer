@@ -13,7 +13,7 @@
         "sha": "e0ffbb747eb8fc3b736876b98288c9032d57124f"
       },
       "description": "Turn Claude Code into the data engineer a small business could never afford. Builds and operates a cheap, powerful Modern Data Stack (Tailscale + dlt + BigQuery + dbt + optional MCP) end-to-end, headless.",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "author": {
         "name": "Pol Cribcasals"
       }

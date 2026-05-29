@@ -86,22 +86,21 @@ The engineer takes over. It **asks the few things it needs** ("do you already ha
 
 You'll need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Hostinger](https://hostinger.com/vps) or a similar VPS provider, [Tailscale](https://tailscale.com), and [GitHub](https://github.com) — though if you already have any of these, the engineer adapts and reuses them instead.
 
-## Two ways to run it: skills (pull) or the harness agent (push)
+## How you invoke it
 
-- **Skills, on demand (default).** With the plugin installed, the skills are available everywhere and Claude picks the right one when your request matches — *pull*. Good for occasional use; it never takes over a session you're using for something else.
-- **The data-engineer agent (harness mode).** The plugin also ships a main-thread agent, [`agents/data-engineer.md`](agents/data-engineer.md), that **becomes** the data engineer from the first message: it reads the deployment marker, resumes or starts a build, and holds the posture (headless, opinionated-but-adaptive, never dead-end). This is *push* — the session **is** the engineer.
+You don't need any per-session setup. With the plugin installed, just describe the task and Claude picks the matching skill (or invoke it explicitly):
 
-  Activate it **only where you want it** — in the project/session dedicated to a client — by setting it as the main agent in that project's `.claude/settings.json`:
+```text
+"Build a Modern Data Stack for a new client."        → create-mds
+"Add Shopify as a data source."                       → add-source
+/agentic-data-engineer:create-mds                     → explicit invocation
+```
 
-  ```json
-  { "agent": "agentic-data-engineer:data-engineer" }
-  ```
-
-  Other projects and sessions are untouched. (The plugin does **not** force this globally — turning a session into the data engineer is always your explicit choice, per project.)
+When `create-mds` finishes, it writes a `CLAUDE.md` into the client repo, so **future sessions opened in that folder resume as this client's data engineer automatically** — no flags, no settings to toggle.
 
 ## Status
 
-**v0.8.0 — adds the data-engineer harness agent.** The plugin now ships a main-thread agent ([`agents/data-engineer.md`](agents/data-engineer.md)) so a project/session can *become* the data engineer (push), on top of the skills being available on demand (pull). Activate it per-project; it never takes over globally.
+**v0.9.0 — pull-only workflow (dropped the main-thread agent).** A short-lived v0.8.0 shipped a main-thread "harness agent" activated via a per-folder `.claude/settings.json`. It was removed: the per-folder activation added friction for little gain. The clean path is **invoke a skill directly** (natural language or `/agentic-data-engineer:create-mds`), and let `create-mds` write a per-client `CLAUDE.md` that auto-resumes the role in that folder.
 
 **v0.7.0 — stack refactored to a leaner, agent-native default: dlt + BigQuery + dbt + systemd.** The default ingestion moved from Airbyte OSS to **dlt** (a Python library: short feedback loop, state in the warehouse so the VPS is disposable) with **mandatory post-load reconciliation**, and orchestration moved from cron to **one linear script on a systemd timer** (kills the load-vs-transform race by construction). BigQuery stays (serving concurrency for the MCP + compute offload), with active cost control (incremental marts + bytes caps + a budget alert). The MCP layer is **opt-in and hardened** (read-only service account; write tools off by default, PR-not-push). **Airbyte + cron remain as documented alternatives** for inherited or data-team-scale deployments. The repo is a Claude Code plugin + marketplace; `create-mds` writes a per-client `CLAUDE.md`. All six skills have working references:
 
