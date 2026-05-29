@@ -5,7 +5,7 @@ description: "Add a new BigQuery-backed skill to the MCP server: a tool exposed 
 
 # add-mcp-skill
 
-> **Status**: v0.3.0 — folder-pattern reference written (the most important component). Step-by-step playbook for adding a skill to an existing MCP server still skeletal; the template skeleton (`templates/mcp-skill-skeleton/`) is forthcoming.
+> **Status**: v0.5.0 — folder-pattern reference written (the most important component) and the runnable MCP server skeleton (`templates/mcp-skeleton/`) is now included (FastMCP `server.py` with read + write tools, Docker/compose/deploy, and a working `example-sales` skill). Step-by-step playbook for adding a skill to an existing MCP server still skeletal.
 
 ## What this skill does
 
@@ -59,7 +59,7 @@ Ask the user:
 3. `schema.md` — for each table, the meaningful columns + gotchas (e.g. "amount is signed for refunds", "vendor_code is NULL for off-catalog").
 4. `examples.sql` — three to five canonical queries the LLM can pattern-match against.
 
-See [`templates/mcp-skill-skeleton/`](templates/mcp-skill-skeleton/) (to be written).
+See [`templates/mcp-skeleton/`](templates/mcp-skeleton/) — a runnable starter (FastMCP `server.py`, `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `deploy.sh`) shipping with a working `skills/example-sales/` skill. Copy a sibling of `example-sales`, edit the four files for the new domain.
 
 **Phase C — Deploy**
 
@@ -79,6 +79,8 @@ Folder pattern (complete):
 Background (in create-mds Phase 3):
 - [`../create-mds/references/mcp-server-architecture.md`](../create-mds/references/mcp-server-architecture.md) — how the MCP server uses these files
 
+Templates (complete):
+- [`templates/mcp-skeleton/`](templates/mcp-skeleton/) — runnable MCP server starter: FastMCP `server.py` (read tool + `list_skills`/`get_skill_context` + the two write tools, with the SELECT-only / table-allowlist / path-traversal / sync-before-write / rollback safety logic), `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `deploy.sh`, `README.md`, and a working `skills/example-sales/` skill (descriptor.json + context.md + schema.md + examples.sql)
+
 Still to be written:
-- `templates/mcp-skill-skeleton/` — copy-paste starter (descriptor.json + context.md + schema.md + examples.sql with sensible placeholders)
 - `references/skills-sapiens-reference.md` — annotated walkthrough of the production reference deployment's first skill

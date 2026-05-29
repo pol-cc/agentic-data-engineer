@@ -1,0 +1,66 @@
+-- =============================================================================
+-- MART MODEL TEMPLATE  —  dim_<ENTITY>.sql / fact_<EVENT>.sql / <DOMAIN>_<GRAIN>.sql
+-- =============================================================================
+-- Copy this file to:
+--   models/marts/<MODEL_NAME>.sql
+--
+-- A mart is the DELIVERABLE layer — the tables humans, dashboards, and the MCP
+-- server query. Business logic lives here. Marts join staging and intermediate
+-- models freely. Materialized as a TABLE (queryable fast, stable through the day).
+--
+-- Name it (see references/dbt-naming-conventions.md):
+--   dim_<entity>        slowly-changing entity attributes (dim_customers)
+--   fact_<event>        one row per event              (fact_orders)
+--   <domain>_<grain>    pre-aggregated report          (revenue_monthly)
+--
+-- Replace every <PLACEHOLDER>:
+--   <INPUT_MODEL_A/B>   the upstream models this mart reads, by ref()
+--   <MODEL_NAME>        this mart's name
+--
+-- Conventions enforced:
+--   - one CTE per input model; each ref() appears EXACTLY once
+--   - the join lives in its own CTE
+--   - EXPLICIT column lists in the final shape — never `select *` from the
+--     warehouse (the trailing `select * from joined` selects a CTE, which is OK)
+--   - no hardcoded project IDs — only {{ ref('...') }} / {{ source('...') }}
+--   - lowercase keywords, snake_case columns, trailing commas
+-- =============================================================================
+
+{{ config(materialized='table') }}
+
+with <INPUT_MODEL_A> as (
+
+    select * from {{ ref('<INPUT_MODEL_A>') }}
+
+),
+
+<INPUT_MODEL_B> as (
+
+    select * from {{ ref('<INPUT_MODEL_B>') }}
+
+),
+
+joined as (
+
+    select
+        -- Primary key of the mart's grain
+        a.<ENTITY>_id,
+
+        -- Foreign keys
+        a.<OTHER_ENTITY>_id,
+
+        -- Attributes pulled from each input (qualify every column)
+        b.<some_attribute>,
+        b.<another_attribute>,
+
+        -- Measures / dates from the fact side
+        a.<event>_date,
+        a.<some>_amount,
+        a.<some>_count
+
+    from <INPUT_MODEL_A> as a
+    left join <INPUT_MODEL_B> as b using (<OTHER_ENTITY>_id)
+
+)
+
+select * from joined

@@ -5,7 +5,7 @@ description: "Add a new dbt model (staging, intermediate, or marts) to an existi
 
 # add-dbt-model
 
-> **Status**: v0.2.0 — conventions and decision tree references written; the step-by-step playbook for invoking from an existing MDS is still skeletal.
+> **Status**: v0.5.0 — conventions + templates complete; conventions and decision tree references written and the copy-paste templates (staging, marts, schema, sources) are now included. The step-by-step playbook for invoking from an existing MDS is still skeletal.
 
 ## What this skill does
 
@@ -65,6 +65,8 @@ Conventions (complete):
 - [`references/dbt-naming-conventions.md`](references/dbt-naming-conventions.md) — file/model/column naming, SQL style, tests pattern, canonical model shapes
 - [`references/staging-vs-marts.md`](references/staging-vs-marts.md) — decision tree for which layer a model belongs in
 
-Templates (still to be written):
-- `templates/staging.sql.template`
-- `templates/marts.sql.template`
+Templates (complete) — copy into the client's dbt project and fill the `<PLACEHOLDER>` markers:
+- [`templates/staging.sql.template`](templates/staging.sql.template) — canonical staging model: `view` materialization, `source` + `renamed` CTEs, explicit casts, `_airbyte_extracted_at as loaded_at`, `where <pk> is not null`
+- [`templates/marts.sql.template`](templates/marts.sql.template) — canonical mart: `table` materialization, one CTE per `ref()` input, a `joined` CTE, explicit final select
+- [`templates/schema.yml.template`](templates/schema.yml.template) — model docs + tests (`not_null`/`unique` PK, `not_null` FK, `accepted_values` enum, optional monetary check)
+- [`templates/sources.yml.template`](templates/sources.yml.template) — raw `sources:` declaration (database `<project>`, schema `raw_<source>`, freshness warn 26h / error 50h, `loaded_at_field: _airbyte_extracted_at`)

@@ -1,6 +1,8 @@
 # AI-Native Principles
 
-These are the seven design principles that hold the `agentic-data-engineer` skill set together. Every skill in this repo must honor them. When the principles conflict with a tool choice, the tool loses — we change the tool, not the principle.
+These are the eight design principles that hold the `agentic-data-engineer` skill set together. Every skill in this repo must honor them. When the principles conflict with a tool choice, the tool loses — we change the tool, not the principle.
+
+The stack is **opinionated by default but adaptive in execution — recommend strongly, impose nothing.** The default stack below is a strong recommendation the agent defends; how it gets deployed always bends to what the user already has (principle 8).
 
 Read this file before writing or modifying any skill.
 
@@ -153,6 +155,25 @@ If you ever find a component that locks the client in, propose its replacement b
 
 ---
 
+## 8. Recommend strongly, impose nothing
+
+**The agent discovers what the user already has BEFORE provisioning anything.** A senior data engineer has strong opinions ("I'd use BigQuery") but asks what you already run first, and adapts if you already run Snowflake. They recommend hard; they impose nothing.
+
+Every build or expand skill runs a **discovery-and-adaptation step first** (see [`discovery-and-adaptation.md`](discovery-and-adaptation.md)). The user's existing infrastructure wins over the defaults:
+
+| The user already has… | The default loses to it |
+|---|---|
+| An existing VPS (any provider) | Validate and reuse it — don't provision a Hostinger box. |
+| An existing warehouse (Snowflake, Postgres) | Target it — don't impose BigQuery. |
+| A cloud preference (AWS, Azure) | Honor it where the playbooks can. |
+| An existing VPN (WireGuard, IPsec) | Document its reachability and skip Tailscale. |
+
+Every major choice is **surfaced as a decision with a default + alternatives**, never silently assumed. The agent presents `Default: X (because…) · Alternatives: Y, Z · When to deviate`, defends the recommendation with reasons — and then proceeds with the user's choice. The default is a recommendation, not a rail.
+
+This is not a contradiction of principles 2 and 3 — the opinion stays. It is the discipline that the opinion is *offered and defended*, not *forced*. When the user picks a non-default, that is an [escape hatch](#7-escape-hatches-always-open) exercised early instead of late; record it in the marker (principle 5) so re-runs and other skills respect it.
+
+---
+
 ## How to read these in practice
 
 When writing a skill, ask yourself for each step:
@@ -164,5 +185,6 @@ When writing a skill, ask yourself for each step:
 5. **What happens if I re-run this skill tomorrow? Does the marker know?** (principle 5)
 6. **How does Claude see whether this step succeeded — via API or by trusting?** (principle 6)
 7. **If the client wants to replace this tool in two years, what hurts?** (principle 7)
+8. **Did I ask what the user already has, or did I assume the default stack?** (principle 8)
 
 A skill that answers these cleanly is shippable. A skill that doesn't gets refined or rejected.

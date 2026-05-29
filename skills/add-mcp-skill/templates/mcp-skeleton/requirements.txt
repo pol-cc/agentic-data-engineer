@@ -1,0 +1,6 @@
+# MCP server dependencies. Pinned loosely — bump and re-test on a schedule.
+# git is a SYSTEM dependency (installed in the Dockerfile), not a pip package:
+# the write tools shell out to `git`.
+fastmcp>=2.0
+google-cloud-bigquery>=3.20
+pyyaml>=6.0

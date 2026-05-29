@@ -15,26 +15,46 @@ Estimated wall-clock time: **2-4 hours** for a first deployment, most of which i
 
 ---
 
-## Step 0 — Gather user input
+## Step 0 — Discover, adapt, then gather build inputs
 
-Before touching any provider, ask the user the questions in this table. Confirm answers explicitly before proceeding. All answers go into the marker file at the end.
+Do **not** start provisioning. Phase 1 begins by discovering what the user already has and adapting the plan to it (principle 8 — recommend strongly, impose nothing). Only after the plan is adapted do you gather the concrete build inputs.
+
+### 0a — Run the discovery questions
+
+Run the discovery-and-adaptation step first: [`../../../shared-references/discovery-and-adaptation.md`](../../../shared-references/discovery-and-adaptation.md). Ask what infrastructure already exists (VPS? warehouse? VPN / on-prem reachability? cloud preference? GitHub org? budget? team size?), present each major component as `Default: X (because…) · Alternatives · When to deviate`, and let the user's existing setup win over the defaults.
+
+The adapted plan determines, for each of the steps below, whether it is **provisioned fresh**, **validated-and-reused**, or **skipped**:
+
+| If the user already has… | Effect on the steps below |
+|---|---|
+| An existing VPS (any provider) | **Step 1 validates-and-reuses** it (SSH, specs, Docker) instead of provisioning Hostinger. Record `"vps": "reused_existing"`. |
+| An existing VPN / WireGuard / IPsec | **Step 2 is skipped or trimmed** — document the existing reachability instead of joining Tailscale. Record `"network_layer"`. |
+| No on-prem sources | The on-prem parts of **Step 2** are skipped entirely. |
+| An existing warehouse (Snowflake/Postgres) | **Step 3 targets it**, not BigQuery. Flag the BigQuery-shaped deltas honestly (see the discovery reference). |
+| An existing GitHub org | **Step 6** creates the repo under it; skip org setup. |
+
+When you adapt onto a thinner alternative path, tell the user plainly (the discovery reference's coverage table is the source of truth for what is well-trodden vs adapted).
+
+### 0b — Gather the build inputs
+
+Once the plan is adapted, ask the user the questions in this table for the components that are still being provisioned fresh. Confirm answers explicitly. All answers, plus the discovery decisions, go into the marker file at the end.
 
 | Question | Used for | Example answer |
 |---|---|---|
 | Company name (short, kebab-case) | VPS hostname, GCP project ID, repo name | `acme-bakery` |
 | Country / billing region | VPS region, BigQuery dataset location | Spain → VPS in Frankfurt, BQ in EU |
 | Primary data sources (this Phase 1 wires the first one) | Decides which connector to set up first | `Factorial HR`, `Shopify`, `SQL Server on-prem` |
-| Does the user have a Hostinger account already? | Skip signup if yes | Yes / No |
-| Does the user have a Tailscale account already? | Skip signup if yes | Yes / No |
-| Does the user have a Google Cloud account? | Skip signup if yes | Yes / No |
+| Does the user have a Hostinger account already? | Skip signup if yes (and skip entirely if reusing a VPS) | Yes / No |
+| Does the user have a Tailscale account already? | Skip signup if yes (and skip entirely if reusing a VPN) | Yes / No |
+| Does the user have a Google Cloud account? | Skip signup if yes (and skip if targeting another warehouse) | Yes / No |
 | Does the user have a GitHub account? | Required, fail early if not | Yes |
 | Client repo name | Where the deployment state lives | `<user>/acme-mds` |
 
-If the user lacks any account, **stop and ask them to create it** — these are the AI-Native exception ceremonies (principle 1). Provide the signup URLs:
+If the user lacks an account needed by a fresh-provision step, **stop and ask them to create it** — these are the AI-Native exception ceremonies (principle 1). Provide the signup URLs (skip any whose component the user already has):
 
-- https://hostinger.com/vps — needed for the VPS
-- https://login.tailscale.com/start — needed for the tailnet
-- https://console.cloud.google.com/ — needed for BigQuery
+- https://hostinger.com/vps — needed for the VPS (skip if reusing a VPS)
+- https://login.tailscale.com/start — needed for the tailnet (skip if reusing a VPN)
+- https://console.cloud.google.com/ — needed for BigQuery (skip if targeting another warehouse)
 - https://github.com/signup — needed for the client repo
 
 Wait for confirmation. Then continue.
@@ -155,6 +175,9 @@ The marker file looks like this after Phase 1:
     "mcp": false
   },
   "decisions": {
+    "warehouse": "bigquery",
+    "network_layer": "tailscale",
+    "vps": "provisioned_fresh",
     "vps_provider": "hostinger",
     "vps_hostname": "<acme>-mds-vps",
     "vps_region": "<region>",

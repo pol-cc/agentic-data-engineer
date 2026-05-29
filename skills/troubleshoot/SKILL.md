@@ -5,7 +5,7 @@ description: "Diagnose pipeline issues by reading logs and state across Airbyte,
 
 # troubleshoot
 
-> **Status**: v0.0.1 — skeleton. Playbook in development.
+> **Status**: v0.5.0 — references written; diagnostic playbook operational.
 
 ## What this skill does
 
@@ -83,5 +83,7 @@ A markdown summary: which layer failed, the evidence, the proposed fix, and a ye
 
 ## References
 
-- [`references/common-failures.md`](references/common-failures.md) — *to be written* — catalog of known failure modes
+- [`references/diagnostic-flow.md`](references/diagnostic-flow.md) — the ordered diagnostic walk (Tailscale → VPS → Airbyte → BQ → dbt → MCP) with exact SSH commands and the propose-then-confirm contract
+- [`references/common-failures.md`](references/common-failures.md) — catalog of known failure modes (symptom → confirm → root cause → proposed fix → prevention)
+- [`../../shared-references/remote-control-model.md`](../../shared-references/remote-control-model.md) — how the agent reaches the VPS and on-prem hosts over Tailscale SSH
 - [`../../shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) — principle 6 on observability

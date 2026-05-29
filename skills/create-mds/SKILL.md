@@ -5,7 +5,7 @@ description: "Build a Modern Data Stack (Tailscale + Airbyte + BigQuery + dbt + 
 
 # create-mds
 
-> **Status**: v0.3.0 — Phase 1, Phase 2, and Phase 3 playbooks complete. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor.
+> **Status**: v0.5.0 — Phase 1, Phase 2, and Phase 3 playbooks complete, with a discovery-and-adapt step (Step 0) that asks what the user already has before provisioning. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor, and [`shared-references/discovery-and-adaptation.md`](../../shared-references/discovery-and-adaptation.md) for the ask-first discipline.
 
 ## What this skill does
 

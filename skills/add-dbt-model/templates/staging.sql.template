@@ -1,0 +1,57 @@
+-- =============================================================================
+-- STAGING MODEL TEMPLATE  —  stg_<SOURCE>_<TABLE>.sql
+-- =============================================================================
+-- Copy this file to:
+--   models/staging/<SOURCE>/stg_<SOURCE>_<TABLE>.sql
+--
+-- A staging model is a 1:1 cleanup of ONE raw source table: rename columns to
+-- snake_case, cast types explicitly, drop garbage rows. No joins, no business
+-- logic (that belongs in intermediate/marts). Materialized as a VIEW — cheap to
+-- rebuild because it stores no data.
+--
+-- Replace every <PLACEHOLDER>:
+--   <SOURCE>  the source name as declared in _<SOURCE>__sources.yml (e.g. factorial)
+--   <TABLE>   the raw table name inside that source            (e.g. employees)
+--   <ENTITY>  the singular entity this table represents        (e.g. employee)
+--   <PK>      the raw primary-key column                       (e.g. id)
+--
+-- Conventions enforced (see references/dbt-naming-conventions.md):
+--   - lowercase keywords, snake_case columns, trailing commas, one col per line
+--   - primary key renamed to <entity>_id (never bare `id`)
+--   - explicit casts even when the type looks right (guards against schema drift)
+--   - the Airbyte extract timestamp becomes `loaded_at` for downstream freshness
+--   - `select * from renamed` is the ONLY `*` allowed (selecting a CTE, not raw)
+-- =============================================================================
+
+{{ config(materialized='view') }}
+
+with source as (
+
+    select * from {{ source('<SOURCE>', '<TABLE>') }}
+
+),
+
+renamed as (
+
+    select
+        -- Identifiers
+        <PK>                            as <ENTITY>_id,
+        -- company_id                   as company_id,
+
+        -- Attributes (cast explicitly — protects against raw schema drift)
+        -- raw_string_col               as <some_name>,
+        -- cast(raw_number_col as int)  as <some_count>,
+        -- cast(raw_amount_col as numeric) as <some>_amount,
+        -- cast(raw_date_col as date)   as <event>_date,
+        -- cast(raw_ts_col as timestamp) as <event>_at,
+        -- cast(raw_bool_col as bool)   as is_<predicate>,
+
+        -- Metadata (used by downstream freshness checks)
+        _airbyte_extracted_at           as loaded_at
+
+    from source
+    where <PK> is not null     -- drop garbage rows that lack a primary key
+
+)
+
+select * from renamed

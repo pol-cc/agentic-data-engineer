@@ -5,7 +5,7 @@ description: "Run a full health check across the MDS pipeline: Airbyte sync stat
 
 # verify-pipeline
 
-> **Status**: v0.0.1 — skeleton. Playbook in development.
+> **Status**: v0.5.0 — references written; read-only health check operational.
 
 ## What this skill does
 
@@ -39,5 +39,8 @@ The skill **never auto-fixes**. If a check fails, it points the user at [`troubl
 
 ## References
 
+- [`references/health-checks.md`](references/health-checks.md) — the exact command(s) per layer, pass criteria, amber/red interpretation, and the full-sweep procedure
+- [`references/report-format.md`](references/report-format.md) — the markdown report template the skill emits, with filled examples
+- [`../../shared-references/remote-control-model.md`](../../shared-references/remote-control-model.md) — how the agent reaches the VPS over Tailscale SSH
 - [`../create-mds/references/airbyte-install.md`](../create-mds/references/airbyte-install.md) — for the API auth flow
 - [`../../shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) — principle 6 on observability

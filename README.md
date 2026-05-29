@@ -28,7 +28,7 @@ Cost: **~$5-10/month**. No vendor lock-in: every component is open-source or has
 
 ## Design principles
 
-This stack is opinionated. The trade-offs are explicit in [`shared-references/ai-native-principles.md`](shared-references/ai-native-principles.md). Headlines:
+This stack is **opinionated by default but adaptive in execution — it recommends strongly and imposes nothing.** The trade-offs are explicit in [`shared-references/ai-native-principles.md`](shared-references/ai-native-principles.md). Headlines:
 
 1. **100% headless from Claude Code** — every lifecycle operation works from a terminal session. UIs are an inspection layer, never the only way.
 2. **Tailscale as first-class network layer** — zero public ports, on-prem databases reachable from the VPS, Claude reaches the VPS the same way.
@@ -37,6 +37,7 @@ This stack is opinionated. The trade-offs are explicit in [`shared-references/ai
 5. **Marker-driven idempotence** — re-running a skill never duplicates work. A `.agentic-data-engineer.json` file in the client repo records what exists.
 6. **Observable from agent** — every component exposes logs/status via API or terminal so the agent can troubleshoot without a human screen.
 7. **Escape hatches always open** — every component is portable. No lock-in is a design promise.
+8. **Recommend strongly, impose nothing** — the agent discovers what you already have *before* provisioning, and your existing VPS / warehouse / VPN wins over the defaults. Every major choice is surfaced as `Default · Alternatives · When to deviate`. See [`shared-references/discovery-and-adaptation.md`](shared-references/discovery-and-adaptation.md).
 
 ## Skills
 
@@ -68,11 +69,18 @@ You need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Host
 
 ## Status
 
-**v0.4.0 — `create-mds` complete + `add-source` operational + remote-control model documented.** The `create-mds` skill drives a deployment end-to-end: raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery), dbt transforms on cron (Phase 2), and a public MCP server with GitHub OAuth, BigQuery read tools, and **write tools** that let an AI client edit skill docs and push to `main` from chat (Phase 3). The `add-source` skill has full references (Airbyte API, connector catalog, BQ native transfers, on-prem via Tailscale). `add-dbt-model` and `add-mcp-skill` have their core convention references.
+**v0.5.0 — all six skills operational + non-dogmatic discovery layer.** Every skill now has working references:
 
-A dedicated [`shared-references/remote-control-model.md`](shared-references/remote-control-model.md) explains how the agent drives the VPS and on-prem hosts headlessly over Tailscale SSH — the connective tissue every skill relies on.
+- **`create-mds`** — end-to-end: discovery-and-adapt (Step 0) → raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery) → dbt transforms on cron (Phase 2) → public MCP server with GitHub OAuth, BigQuery read tools, and **write tools** that let an AI client edit skill docs and push to `main` from chat (Phase 3).
+- **`add-source`** — Airbyte API, connector catalog, BQ native transfers, on-prem via Tailscale.
+- **`add-dbt-model`** — naming conventions, staging-vs-marts decision tree, and copy-paste templates (staging, marts, schema, sources).
+- **`add-mcp-skill`** — the four-file folder pattern, the GitHub write-back mechanism, and a **runnable FastMCP server skeleton** (`templates/mcp-skeleton/`).
+- **`verify-pipeline`** — read-only health checks per layer + report format.
+- **`troubleshoot`** — ordered diagnostic flow + a catalog of known failure modes.
 
-The remaining two skills (`verify-pipeline`, `troubleshoot`) still have skeletal SKILL.md scaffolds; their `references/` are next. See each `skills/<name>/SKILL.md` header for individual status.
+Two pieces of connective tissue every skill relies on: [`shared-references/remote-control-model.md`](shared-references/remote-control-model.md) (how the agent drives the VPS and on-prem hosts headlessly over Tailscale SSH) and [`shared-references/discovery-and-adaptation.md`](shared-references/discovery-and-adaptation.md) (ask-first, adapt to what the user already has — principle 8).
+
+Still thin: alternative-stack playbooks (Snowflake / WireGuard / AWS) are supported at the adaptation level, not yet with full parallel playbooks. See each `skills/<name>/SKILL.md` header for individual status.
 
 ## License
 

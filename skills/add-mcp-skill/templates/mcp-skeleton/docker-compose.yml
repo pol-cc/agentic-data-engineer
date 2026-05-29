@@ -1,0 +1,58 @@
+# MCP server compose. Run from this directory so the adjacent .env is loaded.
+# Replace every <PLACEHOLDER>. See README.md and
+# create-mds/references/mcp-bigquery-server-deploy.md.
+services:
+  mcp:
+    image: mcp-server:latest
+    build: .
+    container_name: mcp
+    restart: unless-stopped
+    networks:
+      - traefik-net
+    environment:
+      # Public base URL — FastMCP's GitHubProvider derives the OAuth callback
+      # from this. NO trailing slash; must match the GitHub OAuth app exactly.
+      - PUBLIC_BASE_URL=https://mcp.<client-domain>.com
+
+      # BigQuery
+      - GCP_PROJECT=<client>-mds-prod
+      - BQ_LOCATION=EU
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/bq-mcp-reader.json
+      - GCP_CREDS_PATH=/secrets/bq-mcp-reader.json   # alias; both point at the mount
+
+      # Read caps (server defaults; a per-skill descriptor.json may TIGHTEN these)
+      - MAX_BYTES_BILLED=2147483648                  # 2 GiB
+      - MAX_ROWS=1000
+
+      # Where the mounted client-repo clone lives inside the container
+      - REPO_DIR=/repo
+
+      # Inbound auth — GitHub OAuth via FastMCP GitHubProvider
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      # comma-separated GitHub logins; empty = ANY authenticated GitHub user.
+      # For write tools, set an explicit allowlist of trusted editors.
+      - ALLOWED_GITHUB_USERS=acme-cto,acme-data-analyst
+
+      # Write tools — fine-grained PAT (contents:write on THIS repo only).
+      # OMIT this line to run read-only. See add-mcp-skill/references/mcp-github-writeback.md
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+
+    volumes:
+      # BigQuery read-only service-account key (read-only mount)
+      - /home/deploy/secrets/bq-mcp-reader.json:/secrets/bq-mcp-reader.json:ro
+      # Live git clone of the client repo (skills live here). MUST be rw so the
+      # write tools can commit + push; safety is enforced by tool scoping
+      # (the path-traversal guard in _resolve_skill_file), not by this mount.
+      - /root/<client>-mds:/repo:rw
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mcp.rule=Host(`mcp.<client-domain>.com`)"
+      - "traefik.http.routers.mcp.entrypoints=websecure"
+      - "traefik.http.routers.mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mcp.loadbalancer.server.port=8000"
+
+networks:
+  traefik-net:
+    external: true

@@ -1,0 +1,15 @@
+{
+  "name": "example-sales",
+  "description": "Example skill: sales analytics for orders, revenue, customers, and channels. Copy this folder, rename, and edit for a real domain.",
+  "version": "0.1.0",
+  "tables": [
+    "example-client-mds-prod.analytics.dim_customers",
+    "example-client-mds-prod.analytics.fact_orders",
+    "example-client-mds-prod.analytics.revenue_monthly"
+  ],
+  "max_query_bytes": 2147483648,
+  "max_rows": 1000,
+  "default_currency": "EUR",
+  "fiscal_year_start_month": 1,
+  "time_zone": "Europe/Madrid"
+}

@@ -1,0 +1,53 @@
+# =============================================================================
+# SCHEMA / TESTS TEMPLATE  —  _<context>__models.yml
+# =============================================================================
+# Copy into the model's folder as a double-underscore YAML file:
+#   models/staging/<source>/_<source>__models.yml   (staging models)
+#   models/marts/_marts__models.yml                 (mart models)
+# The leading underscore sorts it to the top of the folder listing; the doubled
+# underscore separates the context prefix from the `models` type suffix.
+#
+# Append a `- name:` block per model. Replace every <PLACEHOLDER>.
+#
+# Minimum test bar (see references/dbt-naming-conventions.md "Tests pattern"):
+#   - every primary key:  not_null + unique
+#   - every foreign key:  not_null
+#   - every enum column:  accepted_values
+#   - monetary columns:   optional dbt_utils.expression_is_true >= 0
+# Tests catch ~80% of upstream regressions for ~5 lines of YAML per column.
+# =============================================================================
+
+version: 2
+
+models:
+  - name: <MODEL_NAME>
+    description: "One row per <ENTITY>. <One-line statement of what this model is the source of truth for.>"
+    columns:
+
+      # ---- Primary key: not_null + unique -----------------------------------
+      - name: <ENTITY>_id
+        description: "Primary key."
+        tests:
+          - not_null
+          - unique
+
+      # ---- Foreign key: not_null (uniqueness depends on the model) -----------
+      - name: <OTHER_ENTITY>_id
+        description: "Foreign key to <other_model>.<OTHER_ENTITY>_id."
+        tests:
+          - not_null
+
+      # ---- Enum column: accepted_values -------------------------------------
+      - name: <ENUM_COLUMN>
+        description: "Categorical. One of the listed values."
+        tests:
+          - accepted_values:
+              values: ["<VALUE_A>", "<VALUE_B>", "<VALUE_C>", "OTHER"]
+
+      # ---- Monetary column (optional non-negative check) --------------------
+      # Requires the dbt_utils package (add to packages.yml). Remove if unused.
+      - name: <SOME>_amount
+        description: "Amount in <currency>. Never negative."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"

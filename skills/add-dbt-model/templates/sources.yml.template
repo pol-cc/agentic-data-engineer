@@ -1,0 +1,37 @@
+# =============================================================================
+# SOURCES TEMPLATE  —  _<SOURCE>__sources.yml
+# =============================================================================
+# Copy into the source's staging folder as a double-underscore YAML file:
+#   models/staging/<SOURCE>/_<SOURCE>__sources.yml
+#
+# Declares the RAW tables Airbyte loaded into BigQuery so staging models can
+# reference them via {{ source('<SOURCE>', '<TABLE>') }}. One sources file per
+# source. Add a `- name:` (table) block per important raw table.
+#
+# Replace every <PLACEHOLDER>:
+#   <SOURCE>    source name (e.g. factorial). Becomes the first arg to source().
+#   <PROJECT>   the BigQuery project the raw data lives in (e.g. acme-mds-prod).
+#   <SOURCE>    raw schema/dataset is conventionally  raw_<source>
+#   <TABLE>     each raw table name (matches the Airbyte stream name).
+#
+# Freshness: warn after 26h, error after 50h — generous enough for a daily sync
+# plus slack, tight enough to catch a stalled connector within ~2 days.
+# `loaded_at_field` is the Airbyte extract timestamp present on every raw row.
+# =============================================================================
+
+version: 2
+
+sources:
+  - name: <SOURCE>
+    description: "Raw <SOURCE> data landed by Airbyte. Do not query directly — go through staging."
+    database: <PROJECT>          # BigQuery project id
+    schema: raw_<SOURCE>         # convention: raw_<source>
+    loaded_at_field: _airbyte_extracted_at
+    freshness:
+      warn_after: {count: 26, period: hour}
+      error_after: {count: 50, period: hour}
+    tables:
+      - name: <TABLE_A>
+        description: "<One line: what one raw row represents.>"
+      - name: <TABLE_B>
+        description: "<One line: what one raw row represents.>"

@@ -18,7 +18,9 @@ Skills are picked automatically by Claude from the user's natural language. The 
 
 Each skill is a self-contained playbook with a `SKILL.md` entry point, optional `references/` (read on demand), optional `scripts/` (deterministic helpers), and optional `templates/` (files to copy into the client repo).
 
-Cross-cutting knowledge every skill relies on lives in `shared-references/`. Read [`shared-references/remote-control-model.md`](shared-references/remote-control-model.md) before running any remote command — it is the single reference for how the agent drives the VPS and on-prem hosts over Tailscale SSH.
+Cross-cutting knowledge every skill relies on lives in `shared-references/`:
+- [`shared-references/discovery-and-adaptation.md`](shared-references/discovery-and-adaptation.md) — **run this first** on any build/expand task. Discover what the user already has (VPS, warehouse, VPN, cloud) and adapt before provisioning. The stack is opinionated by default but you ask first and adapt (principle 8 — recommend strongly, impose nothing).
+- [`shared-references/remote-control-model.md`](shared-references/remote-control-model.md) — read before running any remote command. How the agent drives the VPS and on-prem hosts over Tailscale SSH.
 
 ## What you should NOT do in this repo
 

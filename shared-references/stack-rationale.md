@@ -2,6 +2,10 @@
 
 Why each piece of the stack is what it is. Every choice has alternatives — this file explains the trade-offs so a skill (or a human reading the repo) can defend the decision or override it consciously.
 
+Read every section below as a **decision point, not a commandment.** Each component is a *default with reasons* — a strong recommendation the agent defends, paired with the alternatives it considered and the conditions under which it would deviate. The opinion is real and worth defending (that is the project's value), but it is offered, not imposed (principle 8 — recommend strongly, impose nothing).
+
+**The discovery step overrides these defaults.** Before any deployment, the agent asks what the user already has and adapts; an existing VPS, warehouse, VPN, or cloud preference wins over the recommendation here. See [`discovery-and-adaptation.md`](discovery-and-adaptation.md) for how that override works and gets recorded.
+
 ---
 
 ## Tailscale — the network backbone
