@@ -1,8 +1,8 @@
 # agentic-data-engineer
 
-> **This is not a data stack. It's the data engineer.** A [Claude Code](https://claude.com/claude-code) skillpack that turns a blank session into the data engineer a small business could never afford to hire — and a capable one for larger companies too. Point it at a new client and it builds and operates a cheap, powerful Modern Data Stack end-to-end, headless, then steps away until you call it again.
+> A [Claude Code](https://claude.com/claude-code) **harness** — an installable **plugin** built from a **skillpack** of **skills** — that acts as an **agentic data engineer**. Point it at a new client and it builds a cheap, self-hostable Modern Data Stack (Tailscale + dlt + BigQuery + dbt + optional MCP) end-to-end, headless, then steps away until you call it again.
 
-> **What it is, in one line:** a Claude Code **harness** — packaged as an installable **plugin**, built from a **skillpack** of composable **skills** — that acts as an agentic data engineer. (Harness = the concept · plugin = how you install it · skillpack/skills = what's inside.)
+The data engineer a small business could never afford to hire — and a capable one for larger companies too.
 
 `agentic-data-engineer` is a **skillpack** — skills, playbooks, and templates — not an application and **not the stack itself**. It is the codified knowledge an AI agent reads to *do data-engineering work on your behalf*: discover what you already have, provision what you don't, wire the pipeline, transform the data, and expose it to AI. Once the stack is up it runs by itself (a linear script on a systemd timer: dlt load → dbt build); the engineer returns only when invoked — to add a source, build a model, expose a new domain to AI, or debug.
 
