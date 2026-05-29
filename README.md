@@ -1,12 +1,14 @@
 # agentic-data-engineer
 
-> An AI data engineer for small businesses. Skill-based, not app-based. Appears when called, builds your Modern Data Stack, and steps away.
+> **This is not a data stack. It's the data engineer.** A [Claude Code](https://claude.com/claude-code) skillpack that turns a blank session into the data engineer a small business could never afford to hire — and a capable one for larger companies too. Point it at a new client and it builds and operates a cheap, powerful Modern Data Stack end-to-end, headless, then steps away until you call it again.
 
-`agentic-data-engineer` is a [Claude Code](https://claude.com/claude-code) skill collection that builds and evolves a **Modern Data Stack (MDS)** for small and medium businesses — end-to-end, headless, from a Claude Code session.
+`agentic-data-engineer` is a **skillpack** — skills, playbooks, and templates — not an application and **not the stack itself**. It is the codified knowledge an AI agent reads to *do data-engineering work on your behalf*: discover what you already have, provision what you don't, wire the pipeline, transform the data, and expose it to AI. Once the stack is up it runs by itself (cron, Airbyte schedules, dbt); the engineer returns only when invoked — to add a source, build a model, expose a new domain to AI, or debug.
 
-It is not a SaaS, not a runtime, not a daemon. It is **a body of knowledge an AI agent reads to do data engineering work on your behalf** — bootstrapping a VPS, configuring Airbyte, wiring BigQuery, scaffolding dbt, deploying an MCP server. Once the system is up, it runs by itself (cron, Airbyte schedules, dbt). The skill comes back only when invoked.
+**Opinionated, but not dogmatic.** It ships a strong default stack *because without an opinion you can't move forward*. But it asks what you already run before assuming anything, adapts to your reality (your existing VPS, warehouse, or VPN win over its defaults), and — crucially — treats its own playbooks as a **floor, not a ceiling**: when it hits terrain the docs don't map, it reasons from first principles, improvises, and keeps going rather than dead-ending on its own documentation.
 
-## What it builds
+**100% headless, Claude Code in control.** Every lifecycle operation runs from a terminal session over Tailscale SSH — provisioning, configuration, syncs, transforms, troubleshooting. The only human steps are the ones that legally require a human: signups, OAuth consent, payment. UIs are an inspection layer, never the only way.
+
+## What it builds (the *output* — the repo is the engineer that builds it)
 
 A complete data stack a PYME can afford:
 
@@ -52,24 +54,38 @@ Each skill is invocable independently. Claude picks the right one from natural l
 | [`verify-pipeline`](skills/verify-pipeline/) | Run a health check across sources, warehouse, transforms |
 | [`troubleshoot`](skills/troubleshoot/) | Diagnose pipeline issues with the agent reading logs across the stack |
 
-## Quick start
+## Install
 
-```bash
-# Clone this repo so Claude Code can read the skills
-git clone https://github.com/pol-cc/agentic-data-engineer.git
-cd agentic-data-engineer
+This repo is a Claude Code **plugin** (and its own single-plugin **marketplace**), so once installed the engineer's skills are available in *every* project — including a brand-new empty client folder.
 
-# Open Claude Code in this folder and ask:
-# > "Build me a Modern Data Stack for a small bakery chain. We have a Shopify store and a Factorial HR account."
-#
-# Claude will pick the `create-mds` skill, ask the questions it needs, and walk you through.
+```text
+# In Claude Code — add this repo as a marketplace, then install the plugin:
+/plugin marketplace add pol-cc/agentic-data-engineer
+/plugin install agentic-data-engineer@pol-cc
 ```
 
-You need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Hostinger](https://hostinger.com/vps) or similar VPS provider, [Tailscale](https://tailscale.com), and a [GitHub](https://github.com) account for the client repo.
+Or try it without installing (loads for one session):
+
+```bash
+git clone https://github.com/pol-cc/agentic-data-engineer.git
+claude --plugin-dir ./agentic-data-engineer
+```
+
+Plugin skills are namespaced (e.g. `/agentic-data-engineer:create-mds`), but you rarely type that — the engineer **picks the right skill from what you ask**.
+
+## What a session feels like
+
+Open a fresh Claude Code in an **empty folder** for a new client and just say what you need:
+
+> *"I need to build the data stack for a new client — a small bakery chain with a Shopify store and a Factorial HR account. Let's start."*
+
+The engineer takes over. It **asks the few things it needs** ("do you already have a VPS? a cloud account? where's the data coming from?") rather than interrogating you, guides you through the human-only steps (signups, OAuth) with the exact links, and provisions everything else headlessly over Tailscale SSH. When the stack is up, it writes a `CLAUDE.md` and a `.agentic-data-engineer.json` state marker into the folder — so the next session in that folder resumes as this client's data engineer, already knowing what's built.
+
+You'll need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [Hostinger](https://hostinger.com/vps) or a similar VPS provider, [Tailscale](https://tailscale.com), and [GitHub](https://github.com) — though if you already have any of these, the engineer adapts and reuses them instead.
 
 ## Status
 
-**v0.5.0 — all six skills operational + non-dogmatic discovery layer.** Every skill now has working references:
+**v0.6.0 — installable as a plugin + non-dogmatic posture hardened.** The repo is now a Claude Code plugin and its own marketplace (`.claude-plugin/`), so the engineer's skills are available in any empty client folder. Principle 8 now explicitly licenses the agent to go *beyond* its own playbooks rather than dead-end, and `create-mds` writes a per-client `CLAUDE.md` so a deployment folder resumes as its own data engineer. All six skills have working references:
 
 - **`create-mds`** — end-to-end: discovery-and-adapt (Step 0) → raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery) → dbt transforms on cron (Phase 2) → public MCP server with GitHub OAuth, BigQuery read tools, and **write tools** that let an AI client edit skill docs and push to `main` from chat (Phase 3).
 - **`add-source`** — Airbyte API, connector catalog, BQ native transfers, on-prem via Tailscale.

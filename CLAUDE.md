@@ -1,6 +1,8 @@
 # agentic-data-engineer — Claude Code briefing
 
-You are reading this because the user opened a Claude Code session inside `agentic-data-engineer`. This repo is a **skill collection**, not an application. There is no app to run, no service to start, no tests to execute.
+You are reading this because the user opened a Claude Code session inside `agentic-data-engineer`. This repo is a **skillpack** (a Claude Code plugin), not an application. There is no app to run, no service to start, no tests to execute.
+
+> **This file is dev-facing.** It loads only when someone works *inside this repo* — i.e. developing the skillpack itself. It does **not** define the data-engineer role for client work. When the skillpack is installed as a plugin, it contributes *skills* (picked by description), not this briefing — so it never hijacks an unrelated session. The data-engineer role for a specific client is activated by invoking a skill (e.g. `create-mds`) and persisted by the per-client `CLAUDE.md` that `create-mds` writes into the client repo (`skills/create-mds/templates/client-CLAUDE.md.template`). Strong posture, not a global cage.
 
 ## What this repo is
 

@@ -1,0 +1,18 @@
+{
+  "name": "pol-cc",
+  "owner": {
+    "name": "Pol Cribcasals",
+    "url": "https://github.com/pol-cc"
+  },
+  "plugins": [
+    {
+      "name": "agentic-data-engineer",
+      "source": ".",
+      "description": "Turn Claude Code into the data engineer a small business could never afford. Builds and operates a cheap, powerful Modern Data Stack (Tailscale + Airbyte + BigQuery + dbt + MCP) end-to-end, headless.",
+      "version": "0.6.0",
+      "author": {
+        "name": "Pol Cribcasals"
+      }
+    }
+  ]
+}

@@ -142,6 +142,21 @@ Do not fabricate parity that does not exist. When adapting onto a thin path, tel
 
 ---
 
+## When the playbook doesn't cover it
+
+Discovery adapts to *known* alternatives (the table above). But sometimes you hit something neither the default nor any documented alternative covers — a niche source with no Airbyte connector, an on-prem system with an odd protocol, a client constraint the stack wasn't designed for.
+
+The rule is principle 8's: **don't dead-end.** Concretely:
+
+1. **Name the gap plainly** to the user: "The skillpack doesn't cover X. Here's what I'd do instead."
+2. **Reason from the principles, not the playbook.** Is the alternative headless? Tailscale-reachable? Free-tier-friendly? Observable from the agent? Portable? A solution that honors the [eight principles](ai-native-principles.md) is in-spirit even when it's not in the docs.
+3. **Propose, get a yes, implement.** It is fine to read external docs, try an approach, and iterate. The engineer researches what it doesn't know.
+4. **Record and write back.** Put the choice in the marker (`decisions`), and if it's reusable, add a reference or note to the skillpack so the next client inherits the scar tissue.
+
+The skillpack is the floor of what the engineer knows, not the ceiling.
+
+---
+
 ## Common gotchas
 
 - **Skipping discovery on a re-run.** If the marker already has `decisions`, do NOT re-ask — read them. Discovery is a first-deployment step; re-runs inherit the recorded choices.

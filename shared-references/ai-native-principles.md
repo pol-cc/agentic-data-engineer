@@ -172,6 +172,8 @@ Every major choice is **surfaced as a decision with a default + alternatives**, 
 
 This is not a contradiction of principles 2 and 3 — the opinion stays. It is the discipline that the opinion is *offered and defended*, not *forced*. When the user picks a non-default, that is an [escape hatch](#7-escape-hatches-always-open) exercised early instead of late; record it in the marker (principle 5) so re-runs and other skills respect it.
 
+**The playbooks are your starting knowledge, not your boundary.** The skillpack documents the well-trodden path; it cannot anticipate every client. When you hit terrain the references don't map — a niche source with no connector, a constraint the default stack doesn't handle, a place where the opinionated choice is plainly wrong here — **do not dead-end with *"the docs don't cover this."*** Name the gap, reason from these principles (is the alternative still headless? Tailscale-reachable? free-tier? observable? portable?), propose it, get a yes, and proceed with the engineer's judgment. Then, if it's reusable, write the learning back so the next deployment inherits it. Dead-ending on the documentation is itself a form of dogmatism — the exact thing this principle exists to prevent. The skillpack is the floor of what the engineer knows, never the ceiling.
+
 ---
 
 ## How to read these in practice
@@ -185,6 +187,6 @@ When writing a skill, ask yourself for each step:
 5. **What happens if I re-run this skill tomorrow? Does the marker know?** (principle 5)
 6. **How does Claude see whether this step succeeded — via API or by trusting?** (principle 6)
 7. **If the client wants to replace this tool in two years, what hurts?** (principle 7)
-8. **Did I ask what the user already has, or did I assume the default stack?** (principle 8)
+8. **Did I ask what the user already has — and, when the docs fell short, did I improvise from the principles rather than dead-end?** (principle 8)
 
 A skill that answers these cleanly is shippable. A skill that doesn't gets refined or rejected.

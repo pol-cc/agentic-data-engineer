@@ -156,10 +156,13 @@ Summary:
 2. Initialize it locally with:
    - `README.md` — auto-generated brief describing the deployment
    - `.agentic-data-engineer.json` — the marker file with Phase 1 state
+   - `CLAUDE.md` — written from [`../templates/client-CLAUDE.md.template`](../templates/client-CLAUDE.md.template), with the `<...>` placeholders filled in for this deployment. This re-activates the data-engineer posture in any future Claude Code session opened in this folder (strong posture, not a cage — see the template).
    - `airbyte-configs/` — exported connection config(s) as YAML
    - `infra/` — VPS hostname, Tailscale notes, BigQuery project ID (no secrets)
    - `.gitignore` — exclude `secrets/`, `*.json` credentials, etc.
 3. Push to GitHub.
+
+> **Why a per-client `CLAUDE.md`?** When the skillpack is installed as a Claude Code plugin, its skills are available globally and picked by description — but nothing pins a session to *this* client. The per-client `CLAUDE.md` lives in the client repo and loads automatically when a session opens there, so the next time you (or anyone) work in this folder, Claude resumes as this deployment's data engineer with the marker state in hand. The skillpack provides the knowledge; this file provides the local, persistent role.
 
 The marker file looks like this after Phase 1:
 

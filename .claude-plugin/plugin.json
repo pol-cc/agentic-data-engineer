@@ -1,0 +1,12 @@
+{
+  "name": "agentic-data-engineer",
+  "description": "Turn Claude Code into the data engineer a small business could never afford to hire. An opinionated-but-adaptive skillpack that builds and operates a cheap, powerful Modern Data Stack (Tailscale + Airbyte + BigQuery + dbt + an MCP server) end-to-end and headless.",
+  "version": "0.6.0",
+  "author": {
+    "name": "Pol Cribcasals",
+    "url": "https://github.com/pol-cc"
+  },
+  "homepage": "https://github.com/pol-cc/agentic-data-engineer",
+  "repository": "https://github.com/pol-cc/agentic-data-engineer",
+  "license": "MIT"
+}
