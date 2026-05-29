@@ -51,7 +51,7 @@ Each skill is invocable independently. Claude picks the right one from natural l
 | Skill | When to invoke |
 |---|---|
 | [`create-mds`](skills/create-mds/) | Build a Modern Data Stack from scratch on a new VPS |
-| [`add-source`](skills/add-source/) | Add a new data source (Airbyte connector or BQ native transfer) to an existing MDS |
+| [`add-source`](skills/add-source/) | Add a new data source (dlt source; Airbyte connector or BQ native transfer as alternatives) to an existing MDS |
 | [`add-dbt-model`](skills/add-dbt-model/) | Add a staging, intermediate, or marts model to the dbt project |
 | [`add-mcp-skill`](skills/add-mcp-skill/) | Add a new BigQuery-backed skill to the MCP server |
 | [`verify-pipeline`](skills/verify-pipeline/) | Run a health check across sources, warehouse, transforms |
@@ -90,8 +90,8 @@ You'll need accounts at: [Google Cloud](https://cloud.google.com) (BigQuery), [H
 
 **v0.7.0 — stack refactored to a leaner, agent-native default: dlt + BigQuery + dbt + systemd.** After a deep engineering review, the default ingestion moved from Airbyte OSS to **dlt** (a Python library: short feedback loop, state in the warehouse so the VPS is disposable) with **mandatory post-load reconciliation**, and orchestration moved from cron to **one linear script on a systemd timer** (kills the load-vs-transform race by construction). BigQuery stays (serving concurrency for the MCP + compute offload), with active cost control (incremental marts + bytes caps + a budget alert). The MCP layer is now **opt-in and hardened** (read-only service account; write tools off by default, PR-not-push). **Airbyte + cron remain as documented alternatives** for inherited or data-team-scale deployments. The repo is a Claude Code plugin + marketplace; `create-mds` writes a per-client `CLAUDE.md`. All six skills have working references:
 
-- **`create-mds`** — end-to-end: discovery-and-adapt (Step 0) → raw layer (Phase 1, Tailscale + VPS + Airbyte + BigQuery) → dbt transforms on cron (Phase 2) → public MCP server with GitHub OAuth, BigQuery read tools, and **write tools** that let an AI client edit skill docs and push to `main` from chat (Phase 3).
-- **`add-source`** — Airbyte API, connector catalog, BQ native transfers, on-prem via Tailscale.
+- **`create-mds`** — end-to-end: discovery-and-adapt (Step 0) → raw layer (Phase 1, Tailscale + VPS + dlt + BigQuery) → dbt transforms in the systemd-timer linear script (Phase 2) → MCP server (Phase 3, **opt-in and hardened**: GitHub OAuth, a read-only service account, BigQuery read tools, write tools **off by default** and PR-not-push when enabled).
+- **`add-source`** — dlt sources + mandatory reconciliation, BQ native transfers, on-prem via Tailscale (Airbyte API + connector catalog documented as the alternative).
 - **`add-dbt-model`** — naming conventions, staging-vs-marts decision tree, and copy-paste templates (staging, marts, schema, sources).
 - **`add-mcp-skill`** — the four-file folder pattern, the GitHub write-back mechanism, and a **runnable FastMCP server skeleton** (`templates/mcp-skeleton/`).
 - **`verify-pipeline`** — read-only health checks per layer + report format.

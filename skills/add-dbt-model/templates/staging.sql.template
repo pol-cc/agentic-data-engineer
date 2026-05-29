@@ -19,18 +19,19 @@
 --   - lowercase keywords, snake_case columns, trailing commas, one col per line
 --   - primary key renamed to <entity>_id (never bare `id`)
 --   - explicit casts even when the type looks right (guards against schema drift)
---   - the ingest load timestamp becomes `loaded_at` for downstream freshness
+--   - the ingest load id (`load_id`) is carried through for downstream freshness
 --   - `select * from renamed` is the ONLY `*` allowed (selecting a CTE, not raw)
 --
--- Load-timestamp column is ingestion-tool agnostic. Pick whichever your loader
--- writes onto every raw row, and alias it to `loaded_at`:
---   - dlt (current default):  _dlt_load_id  (join to the _dlt_loads table for the
---                             wall-clock time) OR a loader-provided `inserted_at` /
---                             `_dlt_loaded_at`-style field if present on the table
---   - Airbyte (legacy):       _airbyte_extracted_at
--- Whatever you choose, the alias downstream is always `loaded_at` so freshness
--- checks and incremental watermarks (see references/incremental-and-cost.md) work
--- the same regardless of ingestion tool.
+-- Load metadata is ingestion-tool agnostic. Pick the column your loader writes
+-- onto every raw row:
+--   - dlt (current default):  _dlt_load_id  — an opaque LOAD-ID STRING, not a
+--                             timestamp. Carry it as `load_id`; the wall-clock
+--                             time lives in the `_dlt_loads` table (join on
+--                             load_id when you need an actual `loaded_at`).
+--   - Airbyte (legacy):       _airbyte_extracted_at — already a timestamp, so
+--                             alias it straight to `loaded_at`.
+-- Downstream freshness checks and incremental watermarks (see
+-- references/incremental-and-cost.md) key off this metadata regardless of tool.
 -- =============================================================================
 
 {{ config(materialized='view') }}
@@ -57,8 +58,10 @@ renamed as (
         -- cast(raw_bool_col as bool)   as is_<predicate>,
 
         -- Metadata (used by downstream freshness checks + incremental watermarks)
-        -- dlt default: _dlt_load_id (or a loaded_at field); Airbyte: _airbyte_extracted_at
-        _dlt_load_id                    as loaded_at
+        -- dlt's _dlt_load_id is an opaque load-id STRING, not a timestamp —
+        -- carry it as load_id; join _dlt_loads for the wall-clock time.
+        -- (Airbyte legacy: _airbyte_extracted_at is a timestamp → `as loaded_at`.)
+        _dlt_load_id                    as load_id
 
     from source
     where <PK> is not null     -- drop garbage rows that lack a primary key

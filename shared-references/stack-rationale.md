@@ -75,10 +75,10 @@ Read every section below as a **decision point, not a commandment.** Each compon
 
 ## dbt-core — the transformation layer
 
-**Chosen because**: industry standard, open-source, the BigQuery adapter is mature, the model-test-doc story is unmatched, and `dbt run` is trivially schedulable from cron. The Python venv + cron pattern is light and observable (principle 6).
+**Chosen because**: industry standard, open-source, the BigQuery adapter is mature, the model-test-doc story is unmatched, and `dbt build` slots straight into the linear pipeline script (`dlt load → dbt build → reconcile`) fired by a systemd timer — no separate scheduler. The Python venv + systemd-timer pattern is light and observable via `journalctl` (principle 6); a `crontab` is the documented alternative.
 
 **Alternatives considered**:
-- *dbt Cloud* — paid layer on top of dbt-core. Buys you a scheduler, IDE, and CI — all of which we get from cron + GitHub Actions + VS Code at zero cost.
+- *dbt Cloud* — paid layer on top of dbt-core. Buys you a scheduler, IDE, and CI — all of which we get from the systemd timer + GitHub Actions + VS Code at zero cost.
 - *SQLMesh* — newer, better at versioning and audits. Worth tracking; would be a viable swap if the team grows.
 - *Hand-written SQL + a Python orchestrator* — gives you nothing dbt doesn't already give you. Skip.
 
@@ -99,9 +99,9 @@ Read every section below as a **decision point, not a commandment.** Each compon
 
 ## GitHub — version control and ops surface
 
-**Chosen because**: the default. Every dev knows it. Free private repos. Actions for CI. Issues for bug tracking. PRs for changes. The `.agentic-data-engineer.json` marker, the dbt project, and the Airbyte configs all live here (principle 4).
+**Chosen because**: the default. Every dev knows it. Free private repos. Actions for CI. Issues for bug tracking. PRs for changes. The `.agentic-data-engineer.json` marker, the dbt project, and the dlt pipeline configs all live here (principle 4).
 
-**Alternatives**: GitLab, Gitea, Codeberg — all viable, identical workflow. The skills target GitHub by default and don't depend on Actions for core function (cron on the VPS does the heavy lifting).
+**Alternatives**: GitLab, Gitea, Codeberg — all viable, identical workflow. The skills target GitHub by default and don't depend on Actions for core function (the systemd-timer linear script on the VPS does the heavy lifting).
 
 ---
 
@@ -112,6 +112,6 @@ Things that show up in nearby projects but are explicitly excluded from the defa
 - **Looker / Metabase / Superset / Tableau** — BI layer. Out of scope. The agent and the MCP cover most ad-hoc reporting needs; a Next.js dashboard or any BI tool plugs into BigQuery if the client wants one.
 - **Kafka / Redpanda / streaming** — overkill for PYME data volumes. Batch is fine.
 - **Spark / Beam / Dataflow** — same. BigQuery handles the transformation budget for under-100GB warehouses without breaking a sweat.
-- **Kubernetes (beyond what `abctl` runs locally for Airbyte)** — operational overhead that doesn't pay for itself at PYME scale.
+- **Kubernetes** — operational overhead that doesn't pay for itself at PYME scale. (The Airbyte alternative drags in a local Kubernetes-in-Docker via `abctl`; the dlt default avoids it entirely.)
 
 These can be added by client-specific skills, but `create-mds` won't pull them in.

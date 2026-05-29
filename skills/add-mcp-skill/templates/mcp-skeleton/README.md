@@ -3,7 +3,7 @@
 A copy-paste starter for the BigQuery-backed MCP server: GitHub OAuth auth,
 read-only BigQuery query tool scoped by per-skill table allowlists, and two
 GitHub write-back tools that let an authenticated agent edit skill docs from
-chat and push the change to `main`.
+chat and open a PR against `main` for human review (never push to main).
 
 It ships with one working sample skill (`skills/example-sales/`) so the server
 returns something useful the moment it boots.
@@ -79,7 +79,8 @@ to `main`, then on the VPS run `./deploy.sh` (it refuses a dirty tree or a local
 HEAD that differs from `origin/main`, then fetch/reset/rebuilds).
 
 **Content-only** skill-doc edits made via the write tools do NOT need a rebuild —
-they push to `origin/main` and the container reads them live off the mounted clone.
+they open a PR; once a human merges and the clone pulls `main`, the container reads
+them live off the mounted clone — not instant.
 
 ## The skills folder
 
@@ -101,9 +102,9 @@ query that references a table not in the selected skill's allowlist.
   folder only — they cannot create skills, touch `descriptor.json`, or write
   outside `skills/<skill>/`. The path-traversal guard enforces this even though
   `/repo` is mounted read-write.
-- **Sync before write, rollback on push fail.** Before any edit the server
-  refuses a dirty tree and hard-resets to `origin/main`; a failed push rolls the
-  local commit back.
+- **Sync before write, rollback on failure.** Before any edit the server
+  refuses a dirty tree and hard-resets to `origin/main`; rollback covers both a
+  failed branch-push and a failed PR-open, reverting the local commit either way.
 
 See `add-mcp-skill/references/mcp-github-writeback.md` for the full write-back
 mechanism and `create-mds/references/mcp-bigquery-server-deploy.md` for the

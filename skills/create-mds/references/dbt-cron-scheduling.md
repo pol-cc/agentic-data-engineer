@@ -8,7 +8,7 @@ End state: a cron job on the VPS that runs `dbt run && dbt test` daily, writes t
 
 The schedule is **the most operationally consequential decision** when dbt is scheduled *separately* from ingestion (the Airbyte-alternative path). If dbt runs before sources finish, downstream tables are built from incomplete raw data — a silent regression nobody notices until someone looks at yesterday's report. (The dlt default sidesteps this entirely; see the banner above.)
 
-Reference timing (UTC) for the default stack:
+Reference timing (UTC) for the Airbyte/cron alternative path:
 
 | Component | Default schedule | Typical finish |
 |---|---|---|
@@ -17,7 +17,7 @@ Reference timing (UTC) for the default stack:
 | BQ Export (GA4) | Automatic | 07:00–10:30 UTC, creates *yesterday's* table |
 | **dbt run** | **11:00 UTC** (recommended) | ~30 min depending on model count |
 
-**Default for v0.1: `0 11 * * *` (11:00 UTC every day).** This:
+**Recommended for this alternative path: `0 11 * * *` (11:00 UTC every day).** This:
 
 - Gives Airbyte 3h+ of slack after the 07:30 trigger
 - Catches GA4 on most days

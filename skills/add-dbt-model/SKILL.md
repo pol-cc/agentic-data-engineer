@@ -5,7 +5,7 @@ description: "Add a new dbt model (staging, intermediate, or marts) to an existi
 
 # add-dbt-model
 
-> **Status**: v0.7.0 — conventions + templates complete, with **incremental-by-default for fact/event marts** on BigQuery (cost control). Conventions and decision-tree references written; copy-paste templates (staging, marts dimension, marts incremental fact, schema, sources) included plus the `incremental-and-cost.md` reference. The step-by-step playbook for invoking from an existing MDS is still skeletal.
+> **Status**: v0.7.0 (pre-test) — conventions + templates complete, with **incremental-by-default for fact/event marts** on BigQuery (cost control). Conventions and decision-tree references written; copy-paste templates (staging, marts dimension, marts incremental fact, schema, sources) included plus the `incremental-and-cost.md` reference; the Phase A–D playbook (classify → write → run/verify → commit) is in place.
 
 ## What this skill does
 
@@ -69,7 +69,7 @@ Conventions (complete):
 - [`references/incremental-and-cost.md`](references/incremental-and-cost.md) — BigQuery cost control: when to go incremental, partition/cluster choice, `maximum_bytes_billed`, the GCP budget alert backstop, and the light cross-db convention (prefer dbt macros, flatten structs early — no `adapter.dispatch` framework)
 
 Templates (complete) — copy into the client's dbt project and fill the `<PLACEHOLDER>` markers:
-- [`templates/staging.sql.template`](templates/staging.sql.template) — canonical staging model: `view` materialization, `source` + `renamed` CTEs, explicit casts, ingest-tool-agnostic load timestamp (`_dlt_load_id` / `_airbyte_extracted_at` → `loaded_at`), `where <pk> is not null`
+- [`templates/staging.sql.template`](templates/staging.sql.template) — canonical staging model: `view` materialization, `source` + `renamed` CTEs, explicit casts, ingest-tool-agnostic load metadata (dlt's `_dlt_load_id` → `load_id`, join `_dlt_loads` for the timestamp; Airbyte legacy `_airbyte_extracted_at` → `loaded_at`), `where <pk> is not null`
 - [`templates/marts.sql.template`](templates/marts.sql.template) — DIMENSION / small-report mart: `table` materialization, one CTE per `ref()` input, a `joined` CTE, explicit final select. Heavily commented on when to use `table` (dim) vs `incremental` (fact)
 - [`templates/marts_incremental.sql.template`](templates/marts_incremental.sql.template) — FACT / event mart (BigQuery default): `incremental` + `insert_overwrite` + `partition_by` + `cluster_by` + `on_schema_change`, with the `is_incremental()` look-back guard
 - [`templates/schema.yml.template`](templates/schema.yml.template) — model docs + tests (`not_null`/`unique` PK, `not_null` FK, `accepted_values` enum, optional monetary check) plus optional incremental-fact guards (partition `not_null`, recency, row-count)

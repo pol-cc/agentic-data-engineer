@@ -19,7 +19,10 @@ Traefik is chosen for three reasons:
 ```bash
 ssh deploy@<client>-mds
 
-# Confirm Docker is installed (from Phase 1 Airbyte step)
+# Confirm Docker is installed.
+# Note: the dlt default path does NOT install Docker in Phase 1 (only the Airbyte
+# alternative does). If this command fails, install Docker now:
+#   curl -fsSL https://get.docker.com | sh
 docker --version
 
 # Confirm DNS resolves to this VPS
@@ -46,7 +49,7 @@ sudo ufw allow 443/tcp
 sudo ufw status verbose
 ```
 
-These are the only public ports the deployment will have. SSH and Airbyte remain Tailscale-only.
+These are the only public ports the deployment will have. SSH and the pipeline remain Tailscale-only.
 
 ## Step B — Create the Traefik docker-compose
 

@@ -17,7 +17,7 @@ The dlt pipeline runs on the VPS (on cron). The on-prem host joins the **same ta
 
 ## Preflight — confirm the tailnet path
 
-The on-prem host should already be in the tailnet from Phase 1 ([`../../create-mds/references/tailscale-onprem.md`](../../create-mds/references/tailscale-onprem.md) Step E). If not, do that first. Then verify, **from the VPS** (the machine Airbyte runs on):
+The on-prem host should already be in the tailnet from Phase 1 ([`../../create-mds/references/tailscale-onprem.md`](../../create-mds/references/tailscale-onprem.md) Step E). If not, do that first. Then verify, **from the VPS** (the machine the dlt pipeline runs on):
 
 ```bash
 ssh deploy@<client>-mds
@@ -30,7 +30,7 @@ nc -zv <onprem-host-name> 1433      # SQL Server  (3306 MySQL, 5432 Postgres)
 # expect: "succeeded" / "open"
 ```
 
-If `nc` hangs or refuses, the data path is broken — **fix it before touching Airbyte**. The usual cause is the on-prem firewall (below), not Airbyte.
+If `nc` hangs or refuses, the data path is broken — **fix it before touching the dlt pipeline**. The usual cause is the on-prem firewall (below), not the pipeline.
 
 ## On-prem firewall requirement
 

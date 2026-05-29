@@ -202,23 +202,25 @@ Reach this catalog from the [diagnostic flow](diagnostic-flow.md), which tells y
 
 ---
 
-## dbt staging ran before Airbyte finished (race condition)
+## dbt staging ran before the dlt load finished (race condition)
 
-- **Symptom** — `stg_` tables built from partial data: row counts well below raw, or a `stg_` model errored on a relation Airbyte hadn't finished writing. Yesterday's report looks wrong.
-- **Confirm**
+- **Symptom** — `stg_` tables built from partial data: row counts well below raw, or a `stg_` model errored on a relation the load hadn't finished writing. Yesterday's report looks wrong.
+- **Confirm** — default stack: the linear orchestration script runs `dlt` then `dbt` in sequence, so a true race is rare — but it appears if dbt is on its own timer that overlaps a still-running load, or the load ran long.
   ```bash
-  # Compare the dbt run finish time to the Airbyte sync finish time for the same source
+  # Default (dlt): compare the dbt run finish time to the dlt load finish time for the same source
   ssh deploy@<client>-mds "jq -r .metadata.generated_at <project>/target/run_results.json"
-  # then compare against the connection's last job lastUpdatedAt from the Airbyte API (see diagnostic-flow Step 3)
+  ssh deploy@<client>-mds "bq query --use_legacy_sql=false 'SELECT MAX(TIMESTAMP_MILLIS(CAST(inserted_at AS INT64))) FROM \`<project>.<raw_dataset>._dlt_loads\` WHERE status = 0'"
+  # If stack.ingest == airbyte (alternative): compare against the connection's last job lastUpdatedAt (diagnostic-flow Step 3)
   ```
-  If dbt's `generated_at` is **before** the sync's `lastUpdatedAt`, staging built mid-sync.
-- **Root cause** — the dbt cron fired while a sync was still running. The default `0 11 * * *` schedule exists precisely to give Airbyte (07:30 trigger) 3h+ of slack — see [dbt-cron-scheduling](../../create-mds/references/dbt-cron-scheduling.md). A race means a sync ran late or the schedule was moved too early.
-- **Proposed fix** — re-run dbt now that the sync is complete (mutating — confirm first), and propose keeping/restoring the 11:00 UTC schedule:
+  If dbt's `generated_at` is **before** the load's finish time, staging built mid-load.
+- **Root cause** — dbt ran while the load was still writing. On the default systemd stack the orchestration script chains dlt → dbt linearly, so this only surfaces when dbt runs on a separate timer whose `OnCalendar=` overlaps a long load, or the load ran late. On the Airbyte/cron alternative, the `0 11 * * *` dbt schedule gives Airbyte (07:30 trigger) 3h+ of slack — a race means the sync ran late or the schedule moved too early. See [dbt-cron-scheduling](../../create-mds/references/dbt-cron-scheduling.md).
+- **Proposed fix** — re-run dbt now that the load is complete (mutating — confirm first):
   ```bash
-  ssh deploy@<client>-mds "/home/deploy/dbt/run_dbt.sh"   # propose; rebuilds marts
+  ssh deploy@<client>-mds "sudo systemctl start dbt-run.service"   # default; rebuilds marts
+  # Cron alternative: ssh deploy@<client>-mds "/home/deploy/dbt/run_dbt.sh"
   ```
-  If the source genuinely finishes later, propose pushing the cron (e.g. `0 18 * * *`) rather than racing.
-- **Prevention** — keep the 11:00 UTC default unless a source is provably slower; for tight coupling, consider an Airbyte webhook / `dbt source freshness` gate before `dbt run`.
+  Structurally, prefer the linear dlt → dbt script (no race by construction); if dbt is on its own timer, propose ordering it after the dlt unit (`After=`/`Requires=`) or pushing its `OnCalendar=` past the load. On the cron alternative, keep/restore the 11:00 UTC schedule or push it later (e.g. `0 18 * * *`) rather than racing.
+- **Prevention** — the linear orchestration script is the durable fix (dlt and dbt cannot overlap when one script runs them in sequence); if they're decoupled, chain the units or gate with `dbt source freshness` before `dbt run`. On the cron alternative, keep the 11:00 UTC default unless a source is provably slower.
 
 ---
 
@@ -277,24 +279,33 @@ Reach this catalog from the [diagnostic flow](diagnostic-flow.md), which tells y
 
 ---
 
-## dbt cron never fired (no log today)
+## dbt scheduled run never fired (no log today)
 
-- **Symptom** — no `dbt_run_<today>.log`; `run_results.json` stale; marts a day stale though Airbyte is fresh.
-- **Confirm**
+- **Symptom** — no `dbt_run_<today>.log`; `run_results.json` stale; marts a day stale though ingest is fresh.
+- **Confirm** — default stack: dbt runs from the `dbt-run.timer` systemd unit.
   ```bash
+  ssh deploy@<client>-mds "systemctl list-timers 'dbt-*' --all --no-pager"          # NEXT/LAST; dead/disabled?
+  ssh deploy@<client>-mds "systemctl status dbt-run.timer dbt-run.service --no-pager"
+  ssh deploy@<client>-mds "journalctl -u dbt-run.service --since '2 days ago' --no-pager | tail -40"
+  ssh deploy@<client>-mds "timedatectl | grep 'Time zone'"   # confirm UTC; OnCalendar is in system TZ
+  # If stack.ingest == airbyte (cron alternative): dbt runs from cron instead
   ssh deploy@<client>-mds "systemctl is-active cron && crontab -l | grep run_dbt"
   ssh deploy@<client>-mds "grep CRON /var/log/syslog | tail -10"
-  ssh deploy@<client>-mds "timedatectl | grep 'Time zone'"   # confirm UTC; schedule is in system TZ
   ```
-- **Root cause** — cron daemon inactive, the crontab entry missing/edited away, the wrapper not executable, or a TZ mismatch firing the job at an unexpected hour. See [dbt-cron-scheduling](../../create-mds/references/dbt-cron-scheduling.md) gotchas.
+- **Root cause** — default (systemd): the `dbt-run.timer` is `dead`/`disabled` or was never `enable --now`'d, the service unit `failed` (bad venv/creds), an `OnCalendar=` that doesn't match the intended time, or the box was down with no `Persistent=true` to catch up. On the cron alternative: cron daemon inactive, the crontab entry missing/edited away, the wrapper not executable, or a TZ mismatch. See [dbt-cron-scheduling](../../create-mds/references/dbt-cron-scheduling.md) gotchas.
 - **Proposed fix** — depending on what's confirmed, propose one of:
   ```bash
-  ssh deploy@<client>-mds "sudo systemctl enable --now cron"          # daemon was down
-  ssh deploy@<client>-mds "chmod +x /home/deploy/dbt/run_dbt.sh"      # not executable
-  ssh deploy@<client>-mds "crontab /home/deploy/dbt/crontab.txt"      # entry missing — reinstall from repo copy
+  # Default (systemd timer)
+  ssh deploy@<client>-mds "sudo systemctl enable --now dbt-run.timer"   # timer was off
+  ssh deploy@<client>-mds "sudo systemctl reset-failed dbt-run.service" # clear a failed state, then start
+  ssh deploy@<client>-mds "sudo systemctl start dbt-run.service"        # run now to catch up
+  # Cron alternative
+  ssh deploy@<client>-mds "sudo systemctl enable --now cron"            # daemon was down
+  ssh deploy@<client>-mds "chmod +x /home/deploy/dbt/run_dbt.sh"        # not executable
+  ssh deploy@<client>-mds "crontab /home/deploy/dbt/crontab.txt"        # entry missing — reinstall from repo copy
   ```
-  And to recover today's marts, propose a manual `run_dbt.sh` run.
-- **Prevention** — the crontab is committed as `dbt/crontab.txt` in the client repo (auditable, reinstallable); confirm the VPS TZ is UTC at setup.
+  And to recover today's marts, propose a manual `dbt-run.service` start (or `run_dbt.sh` on the cron path).
+- **Prevention** — default: the timer + service units are committed in the client repo (auditable, reinstallable), with `Persistent=true` to catch a missed window and `Restart=on-failure` on the service; on the cron alternative the crontab is committed as `dbt/crontab.txt`. Confirm the VPS TZ is UTC at setup either way.
 
 ---
 
@@ -327,9 +338,9 @@ Reach this catalog from the [diagnostic flow](diagnostic-flow.md), which tells y
 | dlt partial load | `_dlt_loads` latest `status != 0` | 3 → 4 |
 | Silent data gap (cursor mis-set) | sequence `missing > 0`, or dest < source | 4 |
 | Reconciliation mismatch src vs dest | source/dest count delta beyond tolerance | 4 |
-| dbt race condition | dbt `generated_at` < sync time | 3 → 5 |
+| dbt race condition | dbt `generated_at` < load finish time | 3 → 5 |
 | BQ quota exceeded | `JOBS_BY_PROJECT` reason `quota` | 4 |
 | GA4 missing today (non-error) | latest table = yesterday | 4 |
-| dbt cron never fired | no log today | 5 |
+| dbt scheduled run never fired | no log today; `dbt-*` timer dead (cron on alt path) | 5 |
 | MCP 502 / down | endpoint 502, container exited | 6 |
 | MCP PAT expired | logs: branch push / PR-open denied | 6 |

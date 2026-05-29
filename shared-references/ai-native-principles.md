@@ -12,7 +12,7 @@ Read this file before writing or modifying any skill.
 
 **Every lifecycle operation of the Modern Data Stack must be executable from a Claude Code session — without leaving the terminal.**
 
-This includes: provisioning a VPS, installing Airbyte OSS, creating a BigQuery project, configuring service accounts, registering Tailscale nodes, scheduling cron jobs, deploying dbt, exposing an MCP server, and inspecting any of it later for troubleshooting.
+This includes: provisioning a VPS, installing dlt, creating a BigQuery project, configuring service accounts, registering Tailscale nodes, configuring a systemd timer (cron as an alternative), deploying dbt, exposing an MCP server, and inspecting any of it later for troubleshooting.
 
 The only allowed exceptions are **authentication ceremonies that require a human** — OAuth consent screens, MFA prompts, VPS provider signup, payment confirmation. When such a ceremony is unavoidable, the skill must:
 
@@ -34,7 +34,7 @@ This decision resolves three concerns at once:
 
 | Concern | How Tailscale resolves it |
 |---|---|
-| Security | The VPS exposes zero public ports. Airbyte, dbt logs, and the MCP server are reachable only inside the tailnet. |
+| Security | The VPS exposes zero public ports. The dlt/dbt linear script, its logs, and the MCP server are reachable only inside the tailnet. |
 | On-prem connectivity | Legacy ERPs and SQL Server installations behind a NAT become reachable from the VPS as if they were on the same LAN — no firewall changes, no traditional VPN. |
 | Multi-host uniformity | Claude reaches the VPS, the laptop, and the on-prem server with the same `ssh user@machine-name` — no jump hosts, no IP hardcoding. |
 
@@ -49,12 +49,12 @@ Public ingress (when needed — e.g. the MCP server exposed to claude.ai) is add
 | Component | Tier used | Cost |
 |---|---|---|
 | BigQuery | 10 GB storage + 1 TB queries/month free | $0 for most PYMEs |
-| Airbyte OSS | Self-hosted on VPS | $0 |
+| dlt | Python library on the VPS | $0 |
 | dbt-core | Open source | $0 |
 | Tailscale | Free plan (3 users, 100 devices) | $0 |
 | Hostinger VPS (KVM 2) | Entry tier | ~$5-8/mo |
 | GitHub | Free for public repos / unlimited private | $0 |
-| **Total** | | **~$5-8/mo** |
+| **Total** | | **~$5-10/mo lean** |
 
 This is the headline number. It is the differentiator against Fivetran ($500+/mo), dbt Cloud ($100+/mo), Snowflake ($800+/mo minimum spend).
 
@@ -66,10 +66,10 @@ This is the headline number. It is the differentiator against Fivetran ($500+/mo
 
 **Every reproducible piece of the system lives in a GitHub repo owned by the client.** This includes:
 
-- Airbyte connection configs (exported via API, versioned as YAML)
+- dlt pipeline configs and the linear pipeline script (Airbyte connection configs exported as YAML — alternative)
 - dbt project (models, tests, profiles.yml.example)
 - MCP server skills and context `.md` files
-- Cron schedules (`crontab.txt` or equivalent committed file)
+- The systemd timer/service units (or a `crontab.txt` — alternative)
 - The `.agentic-data-engineer.json` marker (see principle 5)
 - Runbooks and architectural decision records (ADRs)
 
@@ -87,13 +87,14 @@ This is enforced by a `.agentic-data-engineer.json` file at the root of every cl
 
 ```jsonc
 {
-  "skill_version": "0.1.0",
+  "skill_version": "0.7.0",
   "created_at": "2026-05-28",
   "stack": {
     "sources": ["sql_server_onprem_tailscale", "factorial_hr"],
+    "ingestion": "dlt",
     "warehouse": "bigquery",
     "transform": "dbt_vps",
-    "orchestration": "cron",
+    "orchestration": "systemd_timer",
     "mcp": true
   },
   "decisions": {
@@ -126,14 +127,15 @@ The marker is committed to the client repo. It is human-readable and Claude can 
 
 | Component | Observability surface |
 |---|---|
-| Airbyte | REST API v2 under `/api/public/v1/` — `GET /jobs`, `GET /connections`, `POST /jobs` to trigger |
+| dlt | Post-load reconciliation (row-count source-vs-destination, freshness, gap checks) + the `_dlt_*` state tables in the warehouse + the linear script's stdout/stderr |
+| Linear pipeline script | `journalctl -u <unit>` and `systemctl status` for the systemd timer; per-run log files over SSH |
 | BigQuery | `INFORMATION_SCHEMA.JOBS_BY_PROJECT`, `__TABLES__` (freshness), `bq` CLI |
 | dbt | Run artifacts (`target/run_results.json`, `target/manifest.json`) and log files (`logs/dbt.log`) over SSH |
 | MCP server | Container logs over SSH (`docker logs` or `journalctl`) plus an HTTP health endpoint |
 | Tailscale | `tailscale status` over SSH on any node |
-| Cron | `/var/log/syslog` and per-job log files written by the cron script |
+| Airbyte (alternative) | REST API under `/api/public/v1/` — `GET /jobs`, `GET /connections`, `POST /jobs` to trigger |
 
-**Tools that hide state behind a closed dashboard fail this principle.** This is why Fivetran is out (job state opaque without a UI session) and Airbyte OSS is in (full REST API).
+**Tools that hide state behind a closed dashboard fail this principle.** This is why Fivetran is out (job state opaque without a UI session) and dlt is in — its state lives in the warehouse (`_dlt_*`) and every load is reconciled, so the agent sees completeness without a screen. (Airbyte OSS, the documented alternative, passes too via its full REST API.)
 
 ---
 

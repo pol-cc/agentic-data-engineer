@@ -5,7 +5,7 @@ The opinionated layout for every skill registered with the MCP server. Four file
 ## The four files
 
 ```
-mcp-skills/<skill-name>/
+skills/<skill-name>/
 ├── descriptor.json    ← machine-readable boundary + limits
 ├── context.md         ← business glossary the LLM reads first
 ├── schema.md          ← per-table column documentation

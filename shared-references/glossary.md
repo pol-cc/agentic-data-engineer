@@ -28,22 +28,22 @@ Terms used across the skills and references. Read this if a word feels overloade
 
 **Cattle, not pet** — The property that the VPS is disposable: all durable state lives in BigQuery (`_dlt_*` cursors) and the client repo, so a lost box is rebuilt by the agent in minutes with no data gaps.
 
-**Native transfer** — When Google Cloud handles the data movement itself (GA4 → BigQuery, Google Ads → BigQuery). No Airbyte connector needed; the transfer is configured in the BigQuery console or via the `bq` CLI.
+**Native transfer** — When Google Cloud handles the data movement itself (GA4 → BigQuery, Google Ads → BigQuery). No integration tool needed — not even a dlt pipeline (nor an Airbyte connector); the transfer is configured in the BigQuery console or via the `bq` CLI.
 
 **On-prem source** — A database physically located on the client's premises (typically an old ERP, a SQL Server, a MySQL). Reached via Tailscale from the VPS (dlt's `sql_database` source connects over the tailnet); never exposed to the public internet.
 
 **PYME** — Spanish/Catalan acronym for "Pequeña Y Mediana Empresa" (small and medium business). Used as the default audience profile in this repo: typically 10-200 employees, no dedicated data team, $5-50/month budget for the data stack.
 
-**Raw dataset** — A BigQuery dataset (prefixed `raw_*` by convention) that holds untransformed data as the integration tool (dlt) delivered it. Never queried directly by users — staging models clean it up first.
+**Raw dataset** — A BigQuery dataset (prefixed `raw_*` by convention) that holds untransformed data as the integration tool (dlt by default; Airbyte as an alternative) delivered it. Never queried directly by users — staging models clean it up first.
 
 **Skill** — A markdown playbook (`SKILL.md`) plus optional supporting files (references, scripts, templates) that teaches an AI agent how to do one specific task. The unit of distribution in this repo.
 
-**Source / connector** — A configured data source (e.g. "Factorial HR account #1234") inside Airbyte. A *connector* is the reusable adapter Airbyte ships (e.g. "Factorial HR connector"); a *source* is an instance of a connector with credentials and a specific configuration.
+**Source / connector** — A configured data source (e.g. "Factorial HR account #1234"). By default a source is a **dlt source/pipeline** — a Python definition (credentials + config) that extracts from the system and loads raw into the warehouse. *(Alternative: an Airbyte source — an instance of a reusable Airbyte connector — for inherited or data-team-scale deployments.)*
 
-**Sync** — One execution of an Airbyte connection (source → destination). Triggered by Airbyte's scheduler or manually via the API.
+**Sync** — One run of a source → destination load. By default, one execution of a **dlt pipeline** (`python load.py`), fired by the systemd-timer linear script. *(Alternative: one execution of an Airbyte connection, triggered by Airbyte's scheduler or its API.)*
 
 **Tailnet** — A Tailscale-managed mesh network. Every machine in a client's MDS deployment (VPS, laptop, on-prem servers) joins one tailnet and gets a stable hostname inside it.
 
-**VPS** — Virtual Private Server. The cloud machine that hosts Airbyte, dbt cron, and the MCP server. Defaults to Hostinger KVM 2 in this repo; any equivalent works.
+**VPS** — Virtual Private Server. The cloud machine that hosts the dlt + dbt linear pipeline script (on a systemd timer) and, optionally, the MCP server (Airbyte optional, as an alternative integration layer). Defaults to Hostinger KVM 2 in this repo; any equivalent works. Disposable — durable state lives in BigQuery and the client repo.
 
 **Warehouse** — The cloud database that holds all integrated data. BigQuery in this repo by default.

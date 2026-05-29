@@ -101,9 +101,10 @@ final as (
         -- <some>_amount,
         -- <some>_count
 
-        -- Metadata watermark carried from staging (dlt _dlt_load_id / Airbyte
-        -- _airbyte_extracted_at, aliased upstream to loaded_at)
-        loaded_at
+        -- Load metadata carried from staging. dlt's _dlt_load_id is an opaque
+        -- load-id STRING (carried as load_id; join _dlt_loads for the wall-clock
+        -- time). Airbyte legacy: _airbyte_extracted_at is aliased to loaded_at.
+        load_id
 
     from <INPUT_MODEL>
 

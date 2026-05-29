@@ -39,7 +39,7 @@ If any prerequisite is missing, complete it before continuing — none of the st
 
 ## Step A — Clone or scaffold the MCP server source
 
-For v0.3.0 there is no canonical template yet under [`../../add-mcp-skill/templates/mcp-skeleton/`](../../add-mcp-skill/templates/mcp-skeleton/) (planned). Two paths:
+The canonical template skeleton lives at [`../../add-mcp-skill/templates/mcp-skeleton/`](../../add-mcp-skill/templates/mcp-skeleton/) — start from it (it ships `server.py`, `Dockerfile`, `docker-compose.yml`, `deploy.sh`, `requirements.txt`, and an `example-sales` skill under `skills/`). Two paths:
 
 ### Path 1: use a reference deployment as the starting point
 

@@ -103,10 +103,10 @@ Key decisions made by this playbook:
 - **Implementation language**: FastMCP (Python) — the proven choice in the reference deployment, with `GitHubProvider` auth built in and a compact `server.py`. TypeScript with `@modelcontextprotocol/sdk` is a valid alternative.
 - **Transport**: Streamable HTTP (remote MCP). Required for claude.ai compatibility — stdio is local-only.
 - **Auth**: GitHub OAuth via FastMCP's `GitHubProvider` with a username allowlist (`ALLOWED_GITHUB_USERS`). Reasoning: the user already has a GitHub account, no password DB to manage, allowlist via env var.
-- **Hosting**: container on the same VPS as Airbyte/dbt, exposed via Traefik with Let's Encrypt TLS.
+- **Hosting**: container on the same VPS as the dlt + dbt pipeline, exposed via Traefik with Let's Encrypt TLS.
 - **Storage**: stateless container. All state (skill files, allowlist, BQ creds) is mounted from the host or env vars.
 
-Don't continue until the user agrees to these defaults (or specifies overrides — but v0.3.0 only documents the defaults; overrides are user-responsibility).
+Don't continue until the user agrees to these defaults (or specifies overrides — but v0.7.0 only documents the defaults; overrides are user-responsibility).
 
 ---
 
@@ -142,7 +142,7 @@ Detailed instructions: [`traefik-tls-setup.md`](traefik-tls-setup.md).
 
 Summary:
 
-1. Open ports 80 and 443 on the VPS firewall (only these — Airbyte stays Tailscale-only).
+1. Open ports 80 and 443 on the VPS firewall (only these — the pipeline / SSH stay Tailscale-only).
 2. Pull Traefik container, configure with file provider for static routes.
 3. Configure Let's Encrypt ACME for automatic TLS.
 4. Define the `mcp` router that will forward to the MCP container.
@@ -240,7 +240,7 @@ Detailed instructions: [`mcp-bigquery-server-deploy.md`](mcp-bigquery-server-dep
 Summary:
 
 1. Clone the MCP server source (FastMCP / Python) into `/home/deploy/mcp-server/` on the VPS, and clone the client repo (which holds the skill folders) as a live clone at `/root/<client>-mds`.
-   - For v0.3.0: the template skeleton lives at [`add-mcp-skill/templates/mcp-skeleton/`](../../add-mcp-skill/templates/mcp-skeleton/) (to be written). Until that template exists, point at the user's choice of starter — `pol-cc/skills-sapiens` is the reference deployment.
+   - The template skeleton lives at [`add-mcp-skill/templates/mcp-skeleton/`](../../add-mcp-skill/templates/mcp-skeleton/) — start from it. `pol-cc/skills-sapiens` remains the reference production deployment if you want a fuller example to crib from.
 2. Build the Docker image (`python:3.12-slim`, `pip install -r requirements.txt`).
 3. Run as a Docker container with:
    - Mount the **read-only** SA key `/home/deploy/secrets/bq-mcp-reader.json` read-only (the dlt writer key is never mounted here)
@@ -261,7 +261,7 @@ Summary:
 
 1. Pick the domain (from Step 0 user input — e.g. `sales`).
 2. Identify the BigQuery tables in scope (the marts the user already has).
-3. Create `/home/deploy/mcp-skills/<domain>/`:
+3. Create the skill folder inside the client-repo live clone at `/root/<client>-mds/skills/<domain>/` (mounted into the container at `/repo/skills/`):
    - `descriptor.json` — allowed tables, query limits
    - `context.md` — business glossary for this domain
    - `schema.md` — per-table column docs and gotchas
@@ -370,7 +370,7 @@ Report to the user:
 - First skill registered + domain it covers
 - claude.ai now has the connector
 - "To add a new skill (e.g. finance, marketing), invoke me with 'add a finance skill to the MCP'. I'll use the `add-mcp-skill` skill."
-- "Use `verify-pipeline` to confirm the MCP server's health alongside Airbyte and dbt."
+- "Use `verify-pipeline` to confirm the MCP server's health alongside the dlt + dbt pipeline."
 
 Phase 3 is complete. The MDS is now a full agentic platform.
 

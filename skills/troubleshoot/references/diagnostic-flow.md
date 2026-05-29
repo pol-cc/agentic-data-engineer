@@ -54,20 +54,26 @@ The VPS answers SSH — now is the machine healthy and are the daemons up?
 
 ```bash
 ssh deploy@<client>-mds "uptime && free -h && df -h /"          # load, RAM, disk
-ssh deploy@<client>-mds "abctl local status"                    # Airbyte controller
-ssh deploy@<client>-mds "docker ps --format '{{.Names}}\t{{.Status}}'"  # all containers
-ssh deploy@<client>-mds "systemctl is-active cron"              # cron daemon for dbt
+# Default stack: the dlt + dbt systemd timers — are they enabled and did they last fire?
+ssh deploy@<client>-mds "systemctl list-timers 'dlt-*' 'dbt-*' --all --no-pager"   # NEXT/LAST per timer
+ssh deploy@<client>-mds "journalctl -u dlt-<source>.service -u dbt-run.service --since '2 days ago' --no-pager | tail -40"
+ssh deploy@<client>-mds "docker ps --format '{{.Names}}\t{{.Status}}'"  # all containers (MCP, etc.)
+# If stack.ingest == airbyte (alternative path): the Airbyte controller + the dbt cron daemon
+ssh deploy@<client>-mds "abctl local status"                    # Airbyte controller — airbyte path only
+ssh deploy@<client>-mds "systemctl is-active cron"              # cron daemon — only if dbt runs on cron
 ```
 
 **What a failure implies:**
 
 | Symptom | Implies |
 |---|---|
-| `df -h /` near 100% | Disk full — Airbyte image pulls, Docker logs, or dbt logs filled the disk. Common silent cause of later failures. |
-| `free -h` shows little free, high swap | Memory pressure — the [abctl OOM](common-failures.md#airbyte-abctl-killed-by-oom) story. |
-| `abctl local status` components not `Running` | Airbyte controller is down — restart needed (propose, don't run). |
+| `df -h /` near 100% | Disk full — Docker logs, dlt/dbt logs (or Airbyte image pulls on that path) filled the disk. Common silent cause of later failures. |
+| `free -h` shows little free, high swap | Memory pressure — a dlt full-refresh spike, or the [abctl OOM](common-failures.md#airbyte-abctl-killed-by-oom) story on the Airbyte path. |
+| a `dlt-*`/`dbt-*` timer `LAST` far in the past, or a `dead`/`disabled` timer | The scheduled load/run isn't firing — see [systemd timer didn't fire](common-failures.md#systemd-timer-didnt-fire-dlt-load-never-ran). |
+| a `dlt-*`/`dbt-*` service unit `failed` | The load/run crashed — read its journal in the relevant step below. |
 | a container in `Restarting`/`Exited` | That service is crash-looping — read its logs in the relevant step below. |
-| `cron` inactive | dbt will never run on schedule. |
+| `abctl local status` components not `Running` (airbyte path) | Airbyte controller is down — restart needed (propose, don't run). |
+| `cron` inactive (only when dbt runs on cron) | dbt will never run on schedule — on the default systemd-timer path, check the `dbt-*` timer above instead. |
 
 Check the kernel OOM killer if memory looked tight:
 
@@ -77,9 +83,18 @@ ssh deploy@<client>-mds "sudo dmesg -T | grep -i 'killed process' | tail -5"
 
 ---
 
-## Step 3 — Airbyte API and jobs
+## Step 3 — Ingest jobs
 
-Airbyte's public API is at `http://localhost:8000/api/public/v1/` **on the VPS** (not `/api/v1/`, the internal API — see [airbyte-install](../../create-mds/references/airbyte-install.md)). Token, then recent jobs.
+**Default stack (dlt).** There is no ingest API — the load is the `dlt-<source>.service` driven by its timer (Step 2). Read its state and the dlt bookkeeping in BigQuery (Step 4, `_dlt_loads`); the silent-gap reconciliation is the load-correctness signal, not a job status board. Confirm the last run from the journal:
+
+```bash
+ssh deploy@<client>-mds "systemctl status dlt-<source>.timer dlt-<source>.service --no-pager"
+ssh deploy@<client>-mds "journalctl -u dlt-<source>.service --since '2 days ago' --no-pager | tail -80"
+```
+
+A `failed` unit or a `LAST` far in the past routes to [systemd timer didn't fire](common-failures.md#systemd-timer-didnt-fire-dlt-load-never-ran) or [dlt partial load](common-failures.md#dlt-load-partial--_dlt_loads-shows-failed). Then go to Step 4 for the `_dlt_loads` status and the reconciliation.
+
+**If `stack.ingest == airbyte` (alternative path):** Airbyte's public API is at `http://localhost:8000/api/public/v1/` **on the VPS** (not `/api/v1/`, the internal API — see [airbyte-install](../../create-mds/references/airbyte-install.md)). Token, then recent jobs.
 
 ```bash
 ssh deploy@<client>-mds 'bash -s' <<'EOF'
@@ -178,13 +193,13 @@ For the full source-vs-destination reconciliation (and the incremental cursor-wi
 | `_dlt_loads` latest `status != 0` | a dlt load aborted mid-write — partial package. See [dlt partial load](common-failures.md#dlt-load-partial--_dlt_loads-shows-failed). |
 | `JOBS_BY_PROJECT` shows `quotaExceeded` | [BQ free-tier quota exceeded](common-failures.md#bigquery-free-tier-quota-exceeded). |
 | GA4 today's table missing | Expected Google export lag — **not** an error. See [common-failures: GA4 export lag](common-failures.md#ga4-export-missing-todays-table). |
-| `stg_` rows << raw rows | Possible race condition — staging ran mid-sync. See [common-failures: dbt race](common-failures.md#dbt-staging-ran-before-airbyte-finished-race-condition). |
+| `stg_` rows << raw rows | Possible race condition — staging ran mid-load. See [common-failures: dbt race](common-failures.md#dbt-staging-ran-before-the-dlt-load-finished-race-condition). |
 
 ---
 
 ## Step 5 — dbt last run
 
-What did the last cron run do? Read `run_results.json` and the day's log — don't re-run dbt as a diagnostic (that mutates the warehouse).
+What did the last scheduled run do? On the default stack the `dbt-run.service` is driven by a systemd timer; on the Airbyte/cron alternative it's a cron entry. Read `run_results.json` and the day's log — don't re-run dbt as a diagnostic (that mutates the warehouse).
 
 ```bash
 # Non-success nodes from the last run
@@ -196,14 +211,14 @@ ssh deploy@<client>-mds \
 ssh deploy@<client>-mds "tail -60 ${DBT_LOGS}/dbt_run_\$(date -u +%Y-%m-%d).log"
 ```
 
-The cron default is `0 11 * * *` (11:00 UTC) — see [dbt-cron-scheduling](../../create-mds/references/dbt-cron-scheduling.md).
+The default schedule fires after the dlt load completes (the systemd timer's `OnCalendar=`); the Airbyte/cron alternative defaults to `0 11 * * *` (11:00 UTC) — see [dbt-cron-scheduling](../../create-mds/references/dbt-cron-scheduling.md).
 
 **What a failure implies:**
 
 | Symptom | Implies |
 |---|---|
-| `run_results.json` absent / log missing for today | Cron didn't fire (Step 2: `cron` inactive), or the wrapper errored before writing. Check `grep CRON /var/log/syslog`. |
-| node `error`: compilation / missing relation | A `stg_` model references a raw table Airbyte hasn't created — likely the race condition or a failed sync (Steps 3-4). |
+| `run_results.json` absent / log missing for today | The `dbt-run.timer` didn't fire (Step 2: timer `dead`/`disabled`), or — on the cron alternative — `cron` inactive; or the wrapper errored before writing. Check `journalctl -u dbt-run.service` (systemd) or `grep CRON /var/log/syslog` (cron). |
+| node `error`: compilation / missing relation | A `stg_` model references a raw table the dlt load hasn't created (Airbyte on the alternative path) — likely the race condition or a failed load (Steps 3-4). |
 | node `error`: `Permission denied` reading BQ key | Key file owner changed; wrapper runs as `deploy`. |
 | `dbt test` `fail`/`warn` only | Data-quality issue, not a pipeline outage — surface but don't treat as down. |
 | run started but never finished | A long run overlapped the next schedule, or the box was OOM-killed mid-run (Step 2). |

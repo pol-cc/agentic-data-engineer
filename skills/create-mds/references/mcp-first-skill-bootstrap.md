@@ -17,7 +17,7 @@ Typical first-skill choices, by ease:
 | **operations** | Simple agg of order processing times, error rates | Heavy domain logic (SLAs, multi-tier categorization) |
 | **HR / employees** | Headcount, contracts, leave from Factorial | Compensation analytics (privacy-sensitive) |
 
-Default for v0.3.0: **start with `sales`** if there's a fact_orders mart. Otherwise pick whatever the user has most ready.
+Default for v0.7.0: **start with `sales`** if there's a fact_orders mart. Otherwise pick whatever the user has most ready.
 
 ## Preflight
 
@@ -27,17 +27,20 @@ ssh deploy@<client>-mds
 # Confirm MCP server is up
 docker ps | grep "^.*mcp\s"
 
-# Confirm /home/deploy/mcp-skills exists and is empty (first skill)
-ls /home/deploy/mcp-skills/
-# Expected: empty
+# Confirm the client-repo live clone's skills/ exists and is empty (first skill).
+# Skills live INSIDE the client repo, cloned live on the VPS and mounted at /repo
+# in the container — the server reads /repo/skills/.
+ls /root/<client>-mds/skills/
+# Expected: empty (or absent — created in the next step)
 ```
 
 ## Step A — Create the skill folder
 
 ```bash
 SKILL=sales      # or whichever domain
-mkdir -p /home/deploy/mcp-skills/$SKILL
-cd /home/deploy/mcp-skills/$SKILL
+# Skills live inside the client repo's live clone on the VPS (mounted at /repo).
+mkdir -p /root/<client>-mds/skills/$SKILL
+cd /root/<client>-mds/skills/$SKILL
 ```
 
 The detailed folder pattern lives at [`../../add-mcp-skill/references/mcp-skill-folder-pattern.md`](../../add-mcp-skill/references/mcp-skill-folder-pattern.md). Brief summary: four files, each with one purpose.
@@ -286,7 +289,7 @@ EOF
 
 ## Step F — Restart the MCP container to pick up the skill
 
-The skill loader watches the `/skills` directory but may need a restart depending on implementation.
+The skill loader watches the `/repo/skills` directory but may need a restart depending on implementation.
 
 ```bash
 cd /home/deploy/mcp-server
@@ -294,7 +297,7 @@ docker compose restart mcp
 
 # Verify loaded
 docker logs mcp 2>&1 | grep -i "loaded.*skill"
-# Expected: "[mcp] loaded 1 skill from /skills: sales"
+# Expected: "[mcp] loaded 1 skill from /repo/skills: sales"
 ```
 
 ## Step G — Verify from claude.ai
@@ -310,12 +313,21 @@ If the agent picks the wrong table or computes wrongly: the issue is in `context
 
 ## Step H — Commit to the client repo
 
-```bash
-# On the user's laptop, in the client repo
-mkdir -p mcp-skills/<SKILL>
-scp -r deploy@<client>-mds:/home/deploy/mcp-skills/<SKILL>/* mcp-skills/<SKILL>/
+The skill folder already lives **inside** the client repo — the VPS clone at `/root/<client>-mds` (mounted into the container at `/repo`) *is* that repo. Commit from there, or sync to the laptop checkout and commit there:
 
-git add mcp-skills/<SKILL>/
+```bash
+# Option A — commit directly from the VPS clone (it is the client repo)
+ssh deploy@<client>-mds
+cd /root/<client>-mds
+git add skills/<SKILL>/
+git commit -m "Phase 3: bootstrap MCP skill: <SKILL>"
+git push    # (or open a PR if write tools / branch protection are in play)
+
+# Option B — sync to the laptop checkout and commit there
+# On the user's laptop, in the client repo:
+mkdir -p skills/<SKILL>
+scp -r deploy@<client>-mds:/root/<client>-mds/skills/<SKILL>/* skills/<SKILL>/
+git add skills/<SKILL>/
 git commit -m "Phase 3: bootstrap MCP skill: <SKILL>"
 ```
 
@@ -330,10 +342,10 @@ The skill files are now versioned. Future edits (the "improve context.md when th
 
 ## What the second skill looks like
 
-Phase 3 Step 7 (this reference) creates the first skill. Subsequent skills use the `add-mcp-skill` skill — same pattern, different domain. The structure under `/home/deploy/mcp-skills/` grows:
+Phase 3 Step 7 (this reference) creates the first skill. Subsequent skills use the `add-mcp-skill` skill — same pattern, different domain. The structure under the client repo's `skills/` (the live clone at `/root/<client>-mds/skills/`, mounted at `/repo/skills/`) grows:
 
 ```
-mcp-skills/
+skills/
 ├── sales/
 │   ├── descriptor.json
 │   ├── context.md

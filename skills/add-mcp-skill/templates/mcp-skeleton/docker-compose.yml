@@ -34,8 +34,14 @@ services:
       # For write tools, set an explicit allowlist of trusted editors.
       - ALLOWED_GITHUB_USERS=acme-cto,acme-data-analyst
 
-      # Write tools — fine-grained PAT (contents:write on THIS repo only).
-      # OMIT this line to run read-only. See add-mcp-skill/references/mcp-github-writeback.md
+      # Write tools — OFF by default. Set to `on` only after the PAT below is in place.
+      - MCP_WRITE_TOOLS=off
+
+      # Write tools — fine-grained PAT on THIS repo only, needing BOTH
+      # `contents:write` (push the claude-bot edit branch) and `pull_requests:write`
+      # (open the PR — the tools open a PR for human review, never push to main).
+      # OMIT this line to run read-only. Writes also require MCP_WRITE_TOOLS=on above —
+      # the token alone does not enable them. See add-mcp-skill/references/mcp-github-writeback.md
       - GITHUB_TOKEN=${GITHUB_TOKEN}
 
     volumes:

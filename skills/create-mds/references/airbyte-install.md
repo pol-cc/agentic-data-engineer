@@ -204,6 +204,7 @@ After reboot, Airbyte should come back up within ~2 minutes.
 ```jsonc
 {
   "decisions": {
+    "ingestion": "airbyte",
     "airbyte_version": "<output of abctl version>",
     "airbyte_api_base": "http://localhost:8000/api/public/v1/",
     "airbyte_client_id_ref": "secrets/<client>-airbyte-credentials.json"

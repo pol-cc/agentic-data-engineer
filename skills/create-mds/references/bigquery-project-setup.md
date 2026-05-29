@@ -265,4 +265,4 @@ bq mk \
 - **"Billing account is not active"** → user's billing account is in setup or suspended. Check at https://console.cloud.google.com/billing.
 - **Free-tier confusion** → free tier is per-billing-account, not per-project. A user with 5 projects on one billing account shares the same 1 TB/month of queries.
 - **Dataset location can never be changed** → if EU/US is wrong, the dataset must be recreated. Choose right the first time.
-- **Service account key creation disabled** → some orgs disable key creation in Org Policy. If so, fall back to workload identity federation (advanced; not in v0.1 scope).
+- **Service account key creation disabled** → some orgs disable key creation in Org Policy. If so, fall back to workload identity federation (advanced; not in v0.7.0 scope).

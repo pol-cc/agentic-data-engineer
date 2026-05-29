@@ -32,19 +32,24 @@ ssh -i ~/.ssh/deploy_<client> root@<vps-tailscale-hostname> "tailscale status"
 
 If unreachable: the VPS is offline, Tailscale on the VPS is down, or Tailscale on the laptop is down.
 
-**2. VPS processes**
+**2. VPS processes and timers**
 
 ```bash
-ssh ... "docker ps -a | grep airbyte"        # Airbyte containers
-ssh ... "abctl local status"                  # Airbyte controller
-ssh ... "systemctl status cron"               # cron daemon
-ssh ... "tail -100 /root/dbt/logs/dbt_run_$(date -I).log"   # last dbt run
+ssh ... "uptime && free -h && df -h /"                         # load, RAM, disk
+ssh ... "systemctl list-timers 'dlt-*' 'dbt-*' --all --no-pager"  # default: dlt + dbt timers (NEXT/LAST)
+ssh ... "journalctl -u dlt-<source>.service -u dbt-run.service --since '2 days ago' --no-pager | tail -40"
+ssh ... "docker ps --format '{{.Names}}\t{{.Status}}'"         # MCP, etc.
+# If stack.ingest == airbyte (alternative path):
+ssh ... "abctl local status"                                   # Airbyte controller — airbyte path only
+ssh ... "systemctl is-active cron"                             # cron daemon — only if dbt runs on cron
 ```
 
-**3. Airbyte API**
+**3. Ingest jobs**
+
+Default (dlt): no ingest API — read the `dlt-<source>.service` journal (Step 2) and the `_dlt_loads` status + reconciliation in Step 4. If `stack.ingest == airbyte` (alternative path), get a token then list recent jobs:
 
 ```bash
-# Get token, then list recent jobs
+# Airbyte path only — get token, then list recent jobs
 curl ... /api/public/v1/jobs?limit=20
 ```
 
@@ -88,7 +93,7 @@ A markdown summary: which layer failed, the evidence, the proposed fix, and a ye
 
 ## References
 
-- [`references/diagnostic-flow.md`](references/diagnostic-flow.md) — the ordered diagnostic walk (Tailscale → VPS → Airbyte → BQ → dbt → MCP) with exact SSH commands and the propose-then-confirm contract
+- [`references/diagnostic-flow.md`](references/diagnostic-flow.md) — the ordered diagnostic walk (Tailscale → VPS/timers → ingest [dlt by default, Airbyte on the alternative path] → BQ → dbt → MCP) with exact SSH commands and the propose-then-confirm contract
 - [`references/common-failures.md`](references/common-failures.md) — catalog of known failure modes (symptom → confirm → root cause → proposed fix → prevention)
 - [`../../shared-references/remote-control-model.md`](../../shared-references/remote-control-model.md) — how the agent reaches the VPS and on-prem hosts over Tailscale SSH
 - [`../../shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) — principle 6 on observability

@@ -4,29 +4,31 @@
 # Copy into the source's staging folder as a double-underscore YAML file:
 #   models/staging/<SOURCE>/_<SOURCE>__sources.yml
 #
-# Declares the RAW tables Airbyte loaded into BigQuery so staging models can
+# Declares the RAW tables dlt landed in BigQuery so staging models can
 # reference them via {{ source('<SOURCE>', '<TABLE>') }}. One sources file per
 # source. Add a `- name:` (table) block per important raw table.
 #
 # Replace every <PLACEHOLDER>:
 #   <SOURCE>    source name (e.g. factorial). Becomes the first arg to source().
 #   <PROJECT>   the BigQuery project the raw data lives in (e.g. acme-mds-prod).
-#   <SOURCE>    raw schema/dataset is conventionally  raw_<source>
-#   <TABLE>     each raw table name (matches the Airbyte stream name).
+#   <TABLE>     each raw table name (the dlt resource name).
+# The raw schema/dataset is conventionally  raw_<SOURCE>.
 #
 # Freshness: warn after 26h, error after 50h — generous enough for a daily sync
 # plus slack, tight enough to catch a stalled connector within ~2 days.
-# `loaded_at_field` is the Airbyte extract timestamp present on every raw row.
+# `loaded_at_field` is `_dlt_load_id` — dlt stamps each raw row with its load id;
+# join to the `_dlt_loads` table for the wall-clock timestamp. (Legacy/alternative:
+# the Airbyte load wrote `_airbyte_extracted_at`, an extract timestamp, instead.)
 # =============================================================================
 
 version: 2
 
 sources:
   - name: <SOURCE>
-    description: "Raw <SOURCE> data landed by Airbyte. Do not query directly — go through staging."
+    description: "Raw <SOURCE> data landed by dlt. Do not query directly — go through staging."
     database: <PROJECT>          # BigQuery project id
     schema: raw_<SOURCE>         # convention: raw_<source>
-    loaded_at_field: _airbyte_extracted_at
+    loaded_at_field: _dlt_load_id    # dlt's load id; join to _dlt_loads for the timestamp. (Airbyte legacy: _airbyte_extracted_at)
     freshness:
       warn_after: {count: 26, period: hour}
       error_after: {count: 50, period: hour}
