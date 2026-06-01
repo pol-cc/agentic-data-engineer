@@ -5,7 +5,7 @@ description: "Add a new dbt model (staging, intermediate, or marts) to an existi
 
 # add-dbt-model
 
-> **Status**: v0.9.0 (pre-test) — conventions + templates complete, with **incremental-by-default for fact/event marts** on BigQuery (cost control). Conventions and decision-tree references written; copy-paste templates (staging, marts dimension, marts incremental fact, schema, sources) included plus the `incremental-and-cost.md` reference; the Phase A–D playbook (classify → write → run/verify → commit) is in place.
+> **Status**: v0.10.0 (pre-test) — conventions + templates complete, with **incremental-by-default for fact/event marts** on BigQuery (cost control). Conventions and decision-tree references written; copy-paste templates (staging, marts dimension, marts incremental fact, schema, sources) included plus the `incremental-and-cost.md` reference; the Phase A–D playbook (classify → write → run/verify → commit) is in place.
 
 ## What this skill does
 

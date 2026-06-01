@@ -5,7 +5,7 @@ description: "Add a new BigQuery-backed skill to the MCP server: a tool exposed 
 
 # add-mcp-skill
 
-> **Status**: v0.9.0 — folder-pattern reference written (the most important component) and the runnable MCP server skeleton (`templates/mcp-skeleton/`) is now included (FastMCP `server.py` with read tools always-on and write tools **off by default**). **Write tools are safe-by-default: off unless `MCP_WRITE_TOOLS=on`, and when on they OPEN A PR for human review rather than pushing to `main`** (the server feeds untrusted synced data to an agent — see [`references/mcp-github-writeback.md`](references/mcp-github-writeback.md), "Security posture"). Docker/compose/deploy and a working `example-sales` skill ship too. Step-by-step playbook for adding a skill to an existing MCP server still skeletal.
+> **Status**: v0.10.0 — folder-pattern reference written (the most important component) and the runnable MCP server skeleton (`templates/mcp-skeleton/`) is now included (FastMCP `server.py` with read tools always-on and write tools **off by default**). **Write tools are safe-by-default: off unless `MCP_WRITE_TOOLS=on`, and when on they OPEN A PR for human review rather than pushing to `main`** (the server feeds untrusted synced data to an agent — see [`references/mcp-github-writeback.md`](references/mcp-github-writeback.md), "Security posture"). Docker/compose/deploy and a working `example-sales` skill ship too. Step-by-step playbook for adding a skill to an existing MCP server still skeletal.
 
 ## What this skill does
 

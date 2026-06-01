@@ -87,7 +87,7 @@ This is enforced by a `.agentic-data-engineer.json` file at the root of every cl
 
 ```jsonc
 {
-  "skill_version": "0.9.0",
+  "skill_version": "0.10.0",
   "created_at": "2026-05-28",
   "stack": {
     "sources": ["sql_server_onprem_tailscale", "factorial_hr"],

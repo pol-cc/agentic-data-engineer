@@ -5,7 +5,7 @@ description: "Build a Modern Data Stack (Tailscale + dlt + BigQuery + dbt-core +
 
 # create-mds
 
-> **Status**: v0.9.0 — default stack is **Tailscale + dlt + BigQuery + dbt-core + a single linear script on systemd timers + (opt-in) MCP**, on a small disposable VPS. Phase 1, Phase 2, and Phase 3 playbooks complete, with a discovery-and-adapt step (Step 0) that asks what the user already has before provisioning, and an early harness write (Step 0c) that drops a per-client `CLAUDE.md` + `status: building` marker into the folder before provisioning. Airbyte OSS + cron are kept as documented alternatives, not the default. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor, and [`shared-references/discovery-and-adaptation.md`](../../shared-references/discovery-and-adaptation.md) for the ask-first discipline.
+> **Status**: v0.10.0 — default stack is **Tailscale + dlt + BigQuery + dbt-core + a single linear script on systemd timers + (opt-in) MCP**, on a small disposable VPS. Phase 1, Phase 2, and Phase 3 playbooks complete, with a discovery-and-adapt step (Step 0) that asks what the user already has before provisioning, and an early harness write (Step 0c) that drops a per-client `CLAUDE.md` + `status: building` marker into the folder before provisioning. Airbyte OSS + cron are kept as documented alternatives, not the default. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor, and [`shared-references/discovery-and-adaptation.md`](../../shared-references/discovery-and-adaptation.md) for the ask-first discipline.
 
 ## What this skill does
 
@@ -41,7 +41,7 @@ If the marker exists, **do not proceed**. Tell the user which skill to use inste
 
 ## Phase 1 — Raw layer (Tailscale + VPS + BigQuery + dlt)
 
-**Status: complete (v0.9.0 — dlt default).** Full playbook in [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md). That file is the orchestrator the agent reads to drive Phase 1 end-to-end.
+**Status: complete (v0.10.0 — dlt default).** Full playbook in [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md). That file is the orchestrator the agent reads to drive Phase 1 end-to-end.
 
 Outline:
 
@@ -58,7 +58,7 @@ Outline:
 
 ## Phase 2 — Transform layer (dbt) + orchestration
 
-**Status: complete (v0.9.0 — systemd default).** Full playbook in [`references/phase-2-transform-layer.md`](references/phase-2-transform-layer.md). Invoked after Phase 1 succeeds, or independently if the user already has Phase 1 done and wants to add dbt.
+**Status: complete (v0.10.0 — systemd default).** Full playbook in [`references/phase-2-transform-layer.md`](references/phase-2-transform-layer.md). Invoked after Phase 1 succeeds, or independently if the user already has Phase 1 done and wants to add dbt.
 
 Outline:
 

@@ -83,7 +83,7 @@ files only.
 ```jsonc
 // skeleton marker, written at Step 0c
 {
-  "skill_version": "0.9.0",
+  "skill_version": "0.10.0",
   "status": "building",
   "created_at": "<today>",
   "stack": { "sources": [], "ingestion": "dlt", "warehouse": "bigquery", "transform": null, "orchestration": null, "mcp": false },
@@ -210,7 +210,7 @@ The marker file looks like this after Phase 1 (the Step 0c skeleton, now finaliz
 
 ```jsonc
 {
-  "skill_version": "0.9.0",
+  "skill_version": "0.10.0",
   "status": "phase_1_complete",
   "created_at": "<today>",
   "stack": {

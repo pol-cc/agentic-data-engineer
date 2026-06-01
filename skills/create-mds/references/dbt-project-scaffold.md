@@ -100,7 +100,7 @@ EOF
 
 ## Step D — Optional: `packages.yml`
 
-If the client will use dbt utility packages (date helpers, generic tests, etc.), add a packages.yml at the project root and run `dbt deps` once. Skip in v0.9.0 unless the user asks; most starters don't need it.
+If the client will use dbt utility packages (date helpers, generic tests, etc.), add a packages.yml at the project root and run `dbt deps` once. Skip in v0.10.0 unless the user asks; most starters don't need it.
 
 ```yaml
 # Example only — don't include by default
