@@ -1,10 +1,16 @@
 # agentic-data-engineer
 
-> A [Claude Code](https://claude.com/claude-code) harness that turns a session into an agentic data engineer for SMBs — packaged as an installable plugin, built from a skillpack of skills that stand up a cheap, self-hostable Modern Data Stack (Tailscale + dlt + BigQuery + dbt + optional MCP), end-to-end and headless.
+> A [Claude Code](https://claude.com/claude-code) **skillpack** — installed as a plugin — that turns any session into an agentic data engineer for SMBs. It builds and operates a cheap, self-hostable Modern Data Stack (Tailscale + dlt + BigQuery + dbt + optional MCP) end-to-end and headless, and for every client it writes a **parallel harness** — a per-client `CLAUDE.md` beside the stack — so any future session opened in that folder resumes as that client's data engineer.
 
 The data engineer a small business could never afford to hire — and a capable one for larger companies too.
 
 `agentic-data-engineer` is a **skillpack** — skills, playbooks, and templates — not an application and **not the stack itself**. It is the codified knowledge an AI agent reads to *do data-engineering work on your behalf*: discover what you already have, provision what you don't, wire the pipeline, transform the data, and expose it to AI. Once the stack is up it runs by itself (a linear script on a systemd timer: dlt load → dbt build); the engineer returns only when invoked — to add a source, build a model, expose a new domain to AI, or debug.
+
+**How it fits together — three things, don't conflate them:**
+
+- **The skillpack** — this repo, installed as a plugin: the data engineer's codified knowledge. *What you install, once.*
+- **The MDS** — the actual stack it builds, running on always-on infra (a small VPS + BigQuery). *What the business gets.*
+- **The harness** — a per-client `CLAUDE.md` the skillpack writes into the client's repo, **parallel to the MDS**: open a Claude Code session in that folder and the engineer re-activates, already aware of that deployment's state. *How you keep operating it.*
 
 **Opinionated, but not dogmatic.** It ships a strong default stack *because without an opinion you can't move forward*. But it asks what you already run before assuming anything, adapts to your reality (your existing VPS, warehouse, or VPN win over its defaults), and — crucially — treats its own playbooks as a **floor, not a ceiling**: when it hits terrain the docs don't map, it reasons from first principles, improvises, and keeps going rather than dead-ending on its own documentation.
 
@@ -100,7 +106,7 @@ When `create-mds` finishes, it writes a `CLAUDE.md` into the client repo, so **f
 
 ## Status
 
-**v0.9.0 — pull-only workflow (dropped the main-thread agent).** A short-lived v0.8.0 shipped a main-thread "harness agent" activated via a per-folder `.claude/settings.json`. It was removed: the per-folder activation added friction for little gain. The clean path is **invoke a skill directly** (natural language or `/agentic-data-engineer:create-mds`), and let `create-mds` write a per-client `CLAUDE.md` that auto-resumes the role in that folder.
+**v0.9.0 — pull-only workflow (dropped the main-thread agent).** A short-lived v0.8.0 shipped a main-thread agent activated via a per-folder `.claude/settings.json`. It was removed: the per-folder activation added friction for little gain. The clean path is **invoke a skill directly** (natural language or `/agentic-data-engineer:create-mds`), and let `create-mds` write a per-client `CLAUDE.md` that auto-resumes the role in that folder.
 
 **v0.7.0 — stack refactored to a leaner, agent-native default: dlt + BigQuery + dbt + systemd.** The default ingestion moved from Airbyte OSS to **dlt** (a Python library: short feedback loop, state in the warehouse so the VPS is disposable) with **mandatory post-load reconciliation**, and orchestration moved from cron to **one linear script on a systemd timer** (kills the load-vs-transform race by construction). BigQuery stays (serving concurrency for the MCP + compute offload), with active cost control (incremental marts + bytes caps + a budget alert). The MCP layer is **opt-in and hardened** (read-only service account; write tools off by default, PR-not-push). **Airbyte + cron remain as documented alternatives** for inherited or data-team-scale deployments. The repo is a Claude Code plugin + marketplace; `create-mds` writes a per-client `CLAUDE.md`. All six skills have working references:
 

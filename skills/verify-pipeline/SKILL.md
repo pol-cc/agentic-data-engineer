@@ -5,7 +5,7 @@ description: "Run a full health check across the MDS pipeline: ingestion (dlt/Ai
 
 # verify-pipeline
 
-> **Status**: v0.7.0 — references written; read-only health check operational. **Ingest reconciliation is now a first-class layer** (source-vs-destination row counts, dlt `_dlt_loads` freshness, sequence/gap checks) — mandatory after every dlt load to catch the silent data gap a mis-set incremental cursor leaves without crashing.
+> **Status**: v0.9.0 — references written; read-only health check operational. **Ingest reconciliation is now a first-class layer** (source-vs-destination row counts, dlt `_dlt_loads` freshness, sequence/gap checks) — mandatory after every dlt load to catch the silent data gap a mis-set incremental cursor leaves without crashing.
 
 ## What this skill does
 

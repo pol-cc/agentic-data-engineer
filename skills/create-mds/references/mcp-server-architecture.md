@@ -94,7 +94,7 @@ We deploy the MCP server as a Docker container on the same VPS that hosts the dl
 | **Same VPS, Docker container** ✓ | Zero extra infrastructure. Shares Tailscale. Cheap. | If the VPS dies, MCP and pipeline both go down. |
 | Separate VPS for MCP | Isolation. | Doubles the monthly cost. |
 | Serverless (Cloud Run, Fly.io, Vercel Functions) | Auto-scales. No VPS management. | Cold start latency hurts the chat UX. Vendor lock-in. Egress charges if querying BQ from another region. |
-| Anthropic's hosting (future managed MCP) | Zero ops. | Doesn't exist yet for self-defined servers as of v0.7.0. |
+| Anthropic's hosting (future managed MCP) | Zero ops. | Doesn't exist yet for self-defined servers as of v0.9.0. |
 
 The same-VPS choice gives Phase 3 a near-zero marginal cost. The MCP container is small (~50 MB image, ~100 MB RAM running) and idles cheaply.
 
@@ -197,7 +197,7 @@ Full mechanism — the fine-grained PAT, branch creation, PR open via the GitHub
 
 ## What this Phase 3 deliberately does NOT do
 
-To keep scope manageable in v0.7.0:
+To keep scope manageable in v0.9.0:
 
 - **No multi-tenant MCP.** One MCP server serves one client deployment. A "host multiple clients on one MCP server" pattern is possible but adds complexity.
 - **No audit log.** Queries are not persisted by the server. BigQuery's own audit logs cover usage (`INFORMATION_SCHEMA.JOBS_BY_PROJECT`); write-tool edits are recorded as commits in `git log`. A future `add-mcp-audit-log` skill could add server-side logging if compliance demands it.

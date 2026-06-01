@@ -5,7 +5,7 @@ description: "Diagnose pipeline issues by reading logs and state across Airbyte,
 
 # troubleshoot
 
-> **Status**: v0.7.0 — references written; diagnostic playbook operational. Now covers the **dlt-era ingest failure modes** — the silent data gap (a mis-set incremental cursor that skips rows without crashing), a partial load (`_dlt_loads` status non-zero), a source-vs-destination reconciliation mismatch, and a systemd timer that didn't fire — alongside the original Airbyte/dbt/BQ/MCP modes.
+> **Status**: v0.9.0 — references written; diagnostic playbook operational. Now covers the **dlt-era ingest failure modes** — the silent data gap (a mis-set incremental cursor that skips rows without crashing), a partial load (`_dlt_loads` status non-zero), a source-vs-destination reconciliation mismatch, and a systemd timer that didn't fire — alongside the original Airbyte/dbt/BQ/MCP modes.
 
 ## What this skill does
 

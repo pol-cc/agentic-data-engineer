@@ -106,7 +106,7 @@ Key decisions made by this playbook:
 - **Hosting**: container on the same VPS as the dlt + dbt pipeline, exposed via Traefik with Let's Encrypt TLS.
 - **Storage**: stateless container. All state (skill files, allowlist, BQ creds) is mounted from the host or env vars.
 
-Don't continue until the user agrees to these defaults (or specifies overrides — but v0.7.0 only documents the defaults; overrides are user-responsibility).
+Don't continue until the user agrees to these defaults (or specifies overrides — but v0.9.0 only documents the defaults; overrides are user-responsibility).
 
 ---
 

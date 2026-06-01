@@ -17,7 +17,7 @@ Typical first-skill choices, by ease:
 | **operations** | Simple agg of order processing times, error rates | Heavy domain logic (SLAs, multi-tier categorization) |
 | **HR / employees** | Headcount, contracts, leave from Factorial | Compensation analytics (privacy-sensitive) |
 
-Default for v0.7.0: **start with `sales`** if there's a fact_orders mart. Otherwise pick whatever the user has most ready.
+Default for v0.9.0: **start with `sales`** if there's a fact_orders mart. Otherwise pick whatever the user has most ready.
 
 ## Preflight
 

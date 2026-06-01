@@ -5,7 +5,7 @@ description: "Add a new data source (dlt pipeline, BigQuery native transfer, or 
 
 # add-source
 
-> **Status**: v0.7.0 — dlt default; Airbyte/Singer documented escape.
+> **Status**: v0.9.0 — dlt default; Airbyte/Singer documented escape.
 
 ## What this skill does
 

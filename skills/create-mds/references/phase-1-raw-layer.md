@@ -61,6 +61,37 @@ If the user lacks an account needed by a fresh-provision step, **stop and ask th
 
 Wait for confirmation. Then continue.
 
+### 0c — Write the harness skeleton (before provisioning anything)
+
+As soon as you have the company name and repo name (0b), and **before** provisioning anything,
+write two files into the local folder the session is running in — so the folder becomes a
+resumable, self-describing **harness** from the very start:
+
+1. `CLAUDE.md` — copied from [`../templates/client-CLAUDE.md.template`](../templates/client-CLAUDE.md.template),
+   with `<CLIENT>` filled in. Leave still-unknown values (`<warehouse>`, `<VPS>`, `<MCP endpoint>`, …)
+   as `(building…)`; they get completed at the end of Phase 1 (Step 6). The role, the
+   **On session start** block, and the maintenance map are static and active immediately.
+2. `.agentic-data-engineer.json` — a skeleton marker with `"status": "building"` plus whatever
+   decisions are already settled.
+
+This does **not** change the current session (you are already the engineer because `create-mds`
+is running). Its value is twofold: (a) **resumability** — if the build is interrupted, re-opening
+the folder resumes correctly from the marker; and (b) the folder is this client's harness the
+**next** time anyone opens it. The GitHub repo is created later (Step 6); this step writes local
+files only.
+
+```jsonc
+// skeleton marker, written at Step 0c
+{
+  "skill_version": "0.9.0",
+  "status": "building",
+  "created_at": "<today>",
+  "stack": { "sources": [], "ingestion": "dlt", "warehouse": "bigquery", "transform": null, "orchestration": null, "mcp": false },
+  "decisions": { "github_repo": "<user>/<acme>-mds" },
+  "history": [ {"date": "<today>", "skill": "create-mds", "phase": 1, "outcome": "started"} ]
+}
+```
+
 ---
 
 ## Step 1 — Provision the VPS
@@ -156,27 +187,31 @@ Summary:
 
 ---
 
-## Step 6 — Create the client repo
+## Step 6 — Finalize and push the client repo
 
-1. On the user's laptop, create a new GitHub repo (private by default) named as the user chose in Step 0.
-2. Initialize it locally with:
+The harness (`CLAUDE.md` + skeleton marker) already exists locally from **Step 0c**. This step
+completes it with the real values and publishes it.
+
+1. **Finalize the harness files:**
+   - `CLAUDE.md` — fill the remaining `<...>` placeholders (`<warehouse>`, `<VPS>`, `<MCP endpoint>`, the stack summary) with the now-known values; replace any `(building…)` markers.
+   - `.agentic-data-engineer.json` — flip `"status"` from `"building"` to `"phase_1_complete"`, record the full decisions and the first source, and append the `create-mds` Phase 1 `"ok"` history entry.
+2. **Add the rest of the repo contents:**
    - `README.md` — auto-generated brief describing the deployment
-   - `.agentic-data-engineer.json` — the marker file with Phase 1 state
-   - `CLAUDE.md` — written from [`../templates/client-CLAUDE.md.template`](../templates/client-CLAUDE.md.template), with the `<...>` placeholders filled in for this deployment. This re-activates the data-engineer posture in any future Claude Code session opened in this folder (strong posture, not a cage — see the template).
    - `pipeline/` — the dlt `load.py`, `reconcile.py`, and `.dlt/config.toml` (NOT `.dlt/secrets.toml`)
    - `infra/` — VPS hostname, Tailscale notes, BigQuery project ID (no secrets)
    - `.gitignore` — exclude `secrets/`, `*.json` credentials, **`.dlt/secrets.toml`**, etc.
-3. Push to GitHub.
+3. Create the GitHub repo (private by default) named as the user chose in Step 0, commit, and push.
 
 > The dlt pipeline scripts are the reproducible heart of the raw layer (principle 4). Together with the warehouse-resident `_dlt_*` state, a fresh VPS checked out from this repo reloads from the last cursor with no gap — the cattle-not-pet property. Secrets stay out of Git: the SA key lives in `/home/deploy/secrets/` on the box and the agent's secrets folder on the laptop.
 
 > **Why a per-client `CLAUDE.md`?** When the skillpack is installed as a Claude Code plugin, its skills are available globally and picked by description — but nothing pins a session to *this* client. The per-client `CLAUDE.md` lives in the client repo and loads automatically when a session opens there, so the next time you (or anyone) work in this folder, Claude resumes as this deployment's data engineer with the marker state in hand. The skillpack provides the knowledge; this file provides the local, persistent role.
 
-The marker file looks like this after Phase 1:
+The marker file looks like this after Phase 1 (the Step 0c skeleton, now finalized):
 
 ```jsonc
 {
-  "skill_version": "0.7.0",
+  "skill_version": "0.9.0",
+  "status": "phase_1_complete",
   "created_at": "<today>",
   "stack": {
     "sources": ["<first_source>"],

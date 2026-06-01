@@ -5,7 +5,7 @@ description: "Build a Modern Data Stack (Tailscale + dlt + BigQuery + dbt-core +
 
 # create-mds
 
-> **Status**: v0.7.0 — default stack is **Tailscale + dlt + BigQuery + dbt-core + a single linear script on systemd timers + (opt-in) MCP**, on a small disposable VPS. Phase 1, Phase 2, and Phase 3 playbooks complete, with a discovery-and-adapt step (Step 0) that asks what the user already has before provisioning. Airbyte OSS + cron are kept as documented alternatives, not the default. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor, and [`shared-references/discovery-and-adaptation.md`](../../shared-references/discovery-and-adaptation.md) for the ask-first discipline.
+> **Status**: v0.9.0 — default stack is **Tailscale + dlt + BigQuery + dbt-core + a single linear script on systemd timers + (opt-in) MCP**, on a small disposable VPS. Phase 1, Phase 2, and Phase 3 playbooks complete, with a discovery-and-adapt step (Step 0) that asks what the user already has before provisioning, and an early harness write (Step 0c) that drops a per-client `CLAUDE.md` + `status: building` marker into the folder before provisioning. Airbyte OSS + cron are kept as documented alternatives, not the default. See [`shared-references/ai-native-principles.md`](../../shared-references/ai-native-principles.md) for the design philosophy this skill must honor, and [`shared-references/discovery-and-adaptation.md`](../../shared-references/discovery-and-adaptation.md) for the ask-first discipline.
 
 ## What this skill does
 
@@ -41,23 +41,24 @@ If the marker exists, **do not proceed**. Tell the user which skill to use inste
 
 ## Phase 1 — Raw layer (Tailscale + VPS + BigQuery + dlt)
 
-**Status: complete (v0.7.0 — dlt default).** Full playbook in [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md). That file is the orchestrator the agent reads to drive Phase 1 end-to-end.
+**Status: complete (v0.9.0 — dlt default).** Full playbook in [`references/phase-1-raw-layer.md`](references/phase-1-raw-layer.md). That file is the orchestrator the agent reads to drive Phase 1 end-to-end.
 
 Outline:
 
 1. Discover-and-adapt, then gather build inputs: company name, primary data sources, VPS preference, GCP billing account.
-2. Provision the small disposable VPS — [`references/vps-hostinger-bootstrap.md`](references/vps-hostinger-bootstrap.md).
-3. Join the VPS to a Tailscale tailnet, optionally on-prem hosts — [`references/tailscale-onprem.md`](references/tailscale-onprem.md).
-4. Create the BigQuery project, the **write** service account, and a **budget alert** — [`references/bigquery-project-setup.md`](references/bigquery-project-setup.md).
-5. Install dlt in a Python venv on the VPS — [`references/dlt-on-vps-install.md`](references/dlt-on-vps-install.md).
-6. Write the first dlt pipeline (`dlt load → raw_<src>`) and **reconcile** (mandatory) — delegates to [`add-source`](../add-source/SKILL.md).
-7. Initialize the client GitHub repo (dlt scripts + per-client `CLAUDE.md`), write the marker, commit the initial state.
+2. **Write the harness skeleton early** (Step 0c): a per-client `CLAUDE.md` (role + active *on-session-start* orchestration + maintenance map) and a `"status": "building"` marker into the local folder — so it's a resumable, self-describing harness from the start, before any provisioning.
+3. Provision the small disposable VPS — [`references/vps-hostinger-bootstrap.md`](references/vps-hostinger-bootstrap.md).
+4. Join the VPS to a Tailscale tailnet, optionally on-prem hosts — [`references/tailscale-onprem.md`](references/tailscale-onprem.md).
+5. Create the BigQuery project, the **write** service account, and a **budget alert** — [`references/bigquery-project-setup.md`](references/bigquery-project-setup.md).
+6. Install dlt in a Python venv on the VPS — [`references/dlt-on-vps-install.md`](references/dlt-on-vps-install.md).
+7. Write the first dlt pipeline (`dlt load → raw_<src>`) and **reconcile** (mandatory) — delegates to [`add-source`](../add-source/SKILL.md).
+8. Finalize the harness (fill the `CLAUDE.md` placeholders, flip the marker to `phase_1_complete`), create the client GitHub repo, commit and push.
 
 > *Alternative ingestion (documented escape, not default):* Airbyte OSS via `abctl` — [`references/airbyte-install.md`](references/airbyte-install.md). Battle-tested but heavier and less agent-native; use when already committed or at data-team scale.
 
 ## Phase 2 — Transform layer (dbt) + orchestration
 
-**Status: complete (v0.7.0 — systemd default).** Full playbook in [`references/phase-2-transform-layer.md`](references/phase-2-transform-layer.md). Invoked after Phase 1 succeeds, or independently if the user already has Phase 1 done and wants to add dbt.
+**Status: complete (v0.9.0 — systemd default).** Full playbook in [`references/phase-2-transform-layer.md`](references/phase-2-transform-layer.md). Invoked after Phase 1 succeeds, or independently if the user already has Phase 1 done and wants to add dbt.
 
 Outline:
 
