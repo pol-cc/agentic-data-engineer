@@ -1,0 +1,44 @@
+# <CLIENT> — infrastructure
+
+> Written by `create-mds` into `infra/README.md`. Describes **where** this deployment's
+> infrastructure lives — **no secrets**. Credentials never live here: the SSH private key stays on
+> the operator's laptop, the BigQuery service-account key stays on the VPS, and provider tokens live
+> under `~/.config/agentic-data-engineer/`. How the agent drives these hosts:
+> skillpack's `shared-references/remote-control-model.md`.
+
+## VPS
+
+| Field | Value |
+|---|---|
+| Provider | <hostinger / "reused: provider"> |
+| Tailnet hostname | <vps-tailnet-host> |
+| Public IP | <public-ip> — emergency only; port 22 closed to non-tailnet machines after lockdown |
+| Login user | `deploy` |
+| Access (default) | `ssh deploy@<vps-tailnet-host>` — Tailscale SSH, keyless |
+| Access (fallback) | `ssh -i ~/.ssh/<client>_vps deploy@<vps-tailnet-host>` |
+| SSH key (local) | `~/.ssh/<client>_vps` — laptop-only, gitignored, **never committed** |
+
+## Network (Tailscale)
+
+| Field | Value |
+|---|---|
+| Tailnet | <user-tailnet> |
+| VPS node | <vps-tailnet-host> (`tag:mds-vps`) |
+| On-prem node | <onprem-tailnet-host or "none"> |
+| Tailscale SSH | enabled on the VPS (`tailscale up --ssh`) — the keyless access path above |
+
+## Warehouse (BigQuery)
+
+| Field | Value |
+|---|---|
+| Project ID | <bq-project-id> |
+| Location | <EU / US / region> |
+| Write service account | `dlt-writer@<bq-project-id>.iam.gserviceaccount.com` — key lives on the VPS, not here |
+| Budget alert | <"yes — monthly threshold" / "no"> |
+
+## MCP endpoint (only if Phase 3 ran)
+
+| Field | Value |
+|---|---|
+| URL | <https://mcp.<domain> or "none yet"> |
+| Read-only service account | `mcp-reader@<bq-project-id>.iam.gserviceaccount.com` |

@@ -107,7 +107,7 @@ Summary of what happens:
    - Update packages, install `unattended-upgrades`
    - Create a `deploy` user with sudo, disable root SSH password login
    - Open only port 22 (closes everything else; the rest goes through Tailscale)
-5. Capture VPS public IP and root password into a local `.secrets/` file (never committed).
+5. Capture VPS public IP and root password into the laptop secrets store (`~/.config/agentic-data-engineer/secrets/<client>-vps.password`, chmod 600 — never in the repo). See [`vps-hostinger-bootstrap.md`](vps-hostinger-bootstrap.md) Step C.
 
 Verification: `ssh deploy@<vps-ip>` from the user's laptop succeeds.
 
@@ -193,13 +193,13 @@ The harness (`CLAUDE.md` + skeleton marker) already exists locally from **Step 0
 completes it with the real values and publishes it.
 
 1. **Finalize the harness files:**
-   - `CLAUDE.md` — fill the remaining `<...>` placeholders (`<warehouse>`, `<VPS>`, `<MCP endpoint>`, the stack summary) with the now-known values; replace any `(building…)` markers.
-   - `.agentic-data-engineer.json` — flip `"status"` from `"building"` to `"phase_1_complete"`, record the full decisions and the first source, and append the `create-mds` Phase 1 `"ok"` history entry.
+   - `CLAUDE.md` — fill the remaining `<...>` placeholders (`<warehouse>`, `<VPS>`, `<MCP endpoint>`, the stack summary, **and the `<vps-tailnet-host>` / `<client>` values in the "Reaching the VPS" block**) with the now-known values; replace any `(building…)` markers. The "Reaching the VPS" block is what lets the *next* fresh session reach the box without flailing — verify it names the real hostname and the real key path (`~/.ssh/<client>_vps`).
+   - `.agentic-data-engineer.json` — flip `"status"` from `"building"` to `"phase_1_complete"`, record the full decisions and the first source (including `vps_user`, `ssh_key_path`, and `vps_tailscale_ssh` so a fresh session has a machine-readable access hint), and append the `create-mds` Phase 1 `"ok"` history entry.
 2. **Add the rest of the repo contents:**
    - `README.md` — auto-generated brief describing the deployment
    - `pipeline/` — the dlt `load.py`, `reconcile.py`, and `.dlt/config.toml` (NOT `.dlt/secrets.toml`)
-   - `infra/` — VPS hostname, Tailscale notes, BigQuery project ID (no secrets)
-   - `.gitignore` — exclude `secrets/`, `*.json` credentials, **`.dlt/secrets.toml`**, etc.
+   - `infra/README.md` — copied from [`../templates/infra-README.md.template`](../templates/infra-README.md.template) with the placeholders filled (VPS hostname + access commands, Tailscale notes, BigQuery project ID — **no secrets**; the SSH key path is documented, the key itself stays in `~/.ssh/`)
+   - `.gitignore` — exclude `secrets/`, `*.json` credentials, **`.dlt/secrets.toml`**, etc. (the SSH private key lives in `~/.ssh/<client>_vps`, outside the repo, so it is never at risk here)
 3. Create the GitHub repo (private by default) named as the user chose in Step 0, commit, and push.
 
 > The dlt pipeline scripts are the reproducible heart of the raw layer (principle 4). Together with the warehouse-resident `_dlt_*` state, a fresh VPS checked out from this repo reloads from the last cursor with no gap — the cattle-not-pet property. Secrets stay out of Git: the SA key lives in `/home/deploy/secrets/` on the box and the agent's secrets folder on the laptop.
@@ -229,6 +229,9 @@ The marker file looks like this after Phase 1 (the Step 0c skeleton, now finaliz
     "vps_provider": "hostinger",
     "vps_hostname": "<acme>-mds-vps",
     "vps_region": "<region>",
+    "vps_user": "deploy",
+    "ssh_key_path": "~/.ssh/<acme>_vps",
+    "vps_tailscale_ssh": true,
     "tailnet": "<user-tailnet>",
     "bq_project_id": "<acme>-mds-prod",
     "bq_location": "EU",

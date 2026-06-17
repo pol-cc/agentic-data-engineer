@@ -35,6 +35,8 @@ ssh-keygen -t ed25519 -f ~/.ssh/<client>_vps -N "" -C "<client>-mds-deploy"
 
 This is the keypair the agent will use to reach the VPS. The private half stays on the user's laptop only; the public half is uploaded during provisioning.
 
+> **Record this path so future sessions don't flail.** `~/.ssh/<client>_vps` is the canonical key location for this deployment. It gets written into the marker as `ssh_key_path` and into the per-client `CLAUDE.md` "Reaching the VPS" block at the end of Phase 1, so a fresh session reads the path instead of trying every key in `~/.ssh/`. Once Tailscale is up (next step, with `--ssh`), this key becomes the *fallback* — keyless Tailscale SSH is the default path.
+
 ## Step C — Provision the VPS via Hostinger API
 
 > **Hostinger's public VPS API** lives under `https://developers.hostinger.com/api/vps/v1/`. The current endpoints and exact payload schema must be verified against their docs at the time of execution — Hostinger has rotated paths in the past. The flow below is the conceptual shape; map it to the live spec.
@@ -169,9 +171,10 @@ After this step succeeds, the agent updates `.agentic-data-engineer.json` (which
     "vps_provider": "hostinger",
     "vps_id": "<hostinger_vm_id>",
     "vps_public_ip": "<public_ip>",
-    "vps_user": "deploy"
+    "vps_user": "deploy",
+    "ssh_key_path": "~/.ssh/<client>_vps"
   }
 }
 ```
 
-Tailscale hostname is added in the next step.
+Tailscale hostname and `vps_tailscale_ssh` are added in the next step.

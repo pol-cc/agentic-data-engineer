@@ -48,7 +48,7 @@ tailscale status
 tailscale ip -4    # prints the tailnet IP (usually 100.x.x.x)
 ```
 
-> **`--ssh`** enables Tailscale's built-in SSH server. This means the user can `ssh deploy@<client>-mds` from any machine in the tailnet (including their laptop) without managing keys — Tailscale handles the auth. The traditional OpenSSH keypair is still useful as a fallback.
+> **`--ssh`** enables Tailscale's built-in SSH server. This means the user can `ssh deploy@<client>-mds` from any machine in the tailnet (including their laptop) without managing keys — Tailscale handles the auth. The traditional OpenSSH keypair (`~/.ssh/<client>_vps`) is still useful as a fallback. Record `"vps_tailscale_ssh": true` in the marker so a fresh session knows the keyless path is the default and only reaches for the key file when the tailnet itself is down.
 
 ## Step C — Install Tailscale on the user's laptop
 
@@ -165,7 +165,8 @@ If the user is solo, skip this step. Add later when a team joins.
   "decisions": {
     "tailscale_used": true,
     "tailnet_hostname_vps": "<client>-mds",
-    "tailnet_hostname_onprem": "<onprem-host-name or null>"
+    "tailnet_hostname_onprem": "<onprem-host-name or null>",
+    "vps_tailscale_ssh": true
   }
 }
 ```

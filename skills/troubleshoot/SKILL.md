@@ -27,7 +27,8 @@ Run checks in this order — earlier failures often explain later ones:
 **1. Tailscale reachability**
 
 ```bash
-ssh -i ~/.ssh/deploy_<client> root@<vps-tailscale-hostname> "tailscale status"
+# Default: Tailscale SSH (keyless). Fallback if the tailnet is down: ssh -i ~/.ssh/<client>_vps deploy@<host>
+ssh deploy@<vps-tailscale-hostname> "tailscale status"
 ```
 
 If unreachable: the VPS is offline, Tailscale on the VPS is down, or Tailscale on the laptop is down.

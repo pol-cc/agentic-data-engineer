@@ -26,6 +26,27 @@ Before responding to the user's request, orient yourself so you can lead with wh
    - healthy deployment, user just arrived → offer a quick **`verify-pipeline`**.
    - otherwise → summarize what's built and wait for the ask.
 
+### Reaching the VPS
+
+This deployment's VPS runs **Tailscale SSH** (brought up with `tailscale up --ssh`), so from any
+tailnet machine — including this laptop — you reach it **keyless**. Use this first:
+
+```bash
+ssh deploy@<vps-tailnet-host>
+```
+
+If the tailnet itself is the thing that's down, fall back to the per-client OpenSSH key:
+
+```bash
+ssh -i ~/.ssh/<client>_vps deploy@<vps-tailnet-host>
+```
+
+The private key lives **only on this laptop** at `~/.ssh/<client>_vps` (its public half is on the
+VPS); it is never committed to this repo. The marker records both `ssh_key_path` and whether
+Tailscale SSH is on (`vps_tailscale_ssh`) — read them rather than guessing. If the key is absent
+(e.g. a fresh laptop), **ask the user for it or re-provision access — do not blindly try every key
+in `~/.ssh/`.** Full model: skillpack's `shared-references/remote-control-model.md`.
+
 ## Maintenance map (request → skill)
 
 | The user wants to… | Skill |
@@ -54,7 +75,9 @@ Before responding to the user's request, orient yourself so you can lead with wh
 - **Remote control** (VPS / on-prem over Tailscale SSH): skillpack's
   `shared-references/remote-control-model.md`
 - **Stack**: <warehouse> · <integration> · <transform> · <mcp yes/no>
-- **VPS**: <tailnet hostname or "reused existing: provider/host">
+- **VPS**: <tailnet hostname or "reused existing: provider/host"> — reach it with
+  `ssh deploy@<vps-tailnet-host>` (Tailscale SSH; key fallback `~/.ssh/<client>_vps`). See
+  **Reaching the VPS** above.
 - **Warehouse**: <BigQuery project id / Snowflake account / etc.>
 - **MCP endpoint** (if any): <https://mcp.<domain> or "none yet">
 
